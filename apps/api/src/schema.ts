@@ -38,6 +38,7 @@ export const storageConfigs = sqliteTable("storage_configs", {
   secretKey: text("secret_key"),
   bucket: text("bucket"),
   region: text("region"),
+  endpoint: text("endpoint"),
   keyPrefix: text("key_prefix"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull()

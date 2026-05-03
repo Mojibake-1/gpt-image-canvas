@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS storage_configs (
   secret_key TEXT,
   bucket TEXT,
   region TEXT,
+  endpoint TEXT,
   key_prefix TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -174,6 +175,7 @@ ensureColumn("provider_configs", "local_api_key", "local_api_key TEXT");
 ensureColumn("provider_configs", "local_base_url", "local_base_url TEXT");
 ensureColumn("provider_configs", "local_model", "local_model TEXT");
 ensureColumn("provider_configs", "local_timeout_ms", "local_timeout_ms INTEGER");
+ensureColumn("storage_configs", "endpoint", "endpoint TEXT");
 ensureColumn("generation_records", "owner_email", "owner_email TEXT");
 
 sqlite.exec("CREATE INDEX IF NOT EXISTS generation_records_owner_created_at_idx ON generation_records(owner_email, created_at)");

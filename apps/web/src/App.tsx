@@ -36,8 +36,6 @@ import {
   type TLComponents,
   type TLUserPreferences,
   type TldrawOptions,
-  getUserPreferences,
-  setUserPreferences,
   useIsDarkMode,
   useEditor,
   useTldrawUser,
@@ -67,6 +65,7 @@ import {
   validateImageSize,
   type AuthStatusResponse,
   type AssetMetadataResponse,
+  type CloudStorageProvider,
   type CodexDevicePollResponse,
   type CodexDeviceStartResponse,
   type CodexLogoutResponse,
@@ -106,7 +105,6 @@ const RESOLUTION_BADGE_BASE_OFFSET = 7;
 const RESOLUTION_BADGE_MIN_SCALE = 0.52;
 const RESOLUTION_BADGE_SMALL_IMAGE_SIDE = 32;
 const RESOLUTION_BADGE_FULL_SIZE_IMAGE_SIDE = 220;
-const DEFAULT_TLDRAW_LOCALE = "zh-cn";
 const shapeUtils = [GenerationPlaceholderShapeUtil];
 const tldrawOptions = {
   debouncedZoomThreshold: 80
@@ -133,10 +131,13 @@ function localeForTldrawLocale(locale: TLUserPreferences["locale"]): Locale | un
 
 const defaultStorageConfigForm: StorageConfigFormState = {
   enabled: false,
+  provider: "cos",
   secretId: "",
   secretKey: "",
   bucket: "source-1253253332",
   region: "ap-nanjing",
+  accountId: "",
+  endpoint: "",
   keyPrefix: "gpt-image-canvas/assets"
 };
 
@@ -243,10 +244,13 @@ interface ActiveGenerationTask {
 
 interface StorageConfigFormState {
   enabled: boolean;
+  provider: CloudStorageProvider;
   secretId: string;
   secretKey: string;
   bucket: string;
   region: string;
+  accountId: string;
+  endpoint: string;
   keyPrefix: string;
 }
 
@@ -603,13 +607,6 @@ function createBrowserUuid(): string {
 
 function createTldrawShapeId(): TLShapeId {
   return `shape:${createBrowserUuid()}` as TLShapeId;
-}
-
-function simplifiedChineseUserPreferences(): TLUserPreferences {
-  return {
-    ...getUserPreferences(),
-    locale: DEFAULT_TLDRAW_LOCALE
-  };
 }
 
 function displaySize(size: ImageSize): { width: number; height: number } {
@@ -1464,12 +1461,29 @@ function storageConfigToForm(config: StorageConfigResponse | null): StorageConfi
     return defaultStorageConfigForm;
   }
 
+  if (config.provider === "r2") {
+    return {
+      enabled: config.enabled,
+      provider: "r2",
+      secretId: config.r2.accessKeyId,
+      secretKey: config.r2.secretAccessKey.value ?? "",
+      bucket: config.r2.bucket,
+      region: "auto",
+      accountId: config.r2.accountId,
+      endpoint: config.r2.endpoint,
+      keyPrefix: config.r2.keyPrefix
+    };
+  }
+
   return {
     enabled: config.enabled,
+    provider: "cos",
     secretId: config.cos.secretId,
     secretKey: config.cos.secretKey.value ?? "",
     bucket: config.cos.bucket,
     region: config.cos.region,
+    accountId: config.r2.accountId,
+    endpoint: config.r2.endpoint,
     keyPrefix: config.cos.keyPrefix
   };
 }
@@ -1478,6 +1492,22 @@ function storageConfigRequestBody(
   form: StorageConfigFormState,
   options: { preserveSecret: boolean; forceEnabled?: boolean }
 ): SaveStorageConfigRequest {
+  if (form.provider === "r2") {
+    return {
+      enabled: options.forceEnabled ?? form.enabled,
+      provider: "r2",
+      r2: {
+        accessKeyId: form.secretId.trim(),
+        secretAccessKey: options.preserveSecret ? undefined : form.secretKey,
+        preserveSecret: options.preserveSecret,
+        accountId: form.accountId.trim(),
+        endpoint: form.endpoint.trim(),
+        bucket: form.bucket.trim(),
+        keyPrefix: form.keyPrefix.trim()
+      }
+    };
+  }
+
   return {
     enabled: options.forceEnabled ?? form.enabled,
     provider: "cos",
@@ -1490,6 +1520,14 @@ function storageConfigRequestBody(
       keyPrefix: form.keyPrefix.trim()
     }
   };
+}
+
+function storageConfigHasSecretForProvider(config: StorageConfigResponse | null, provider: CloudStorageProvider): boolean {
+  if (!config || config.provider !== provider) {
+    return false;
+  }
+
+  return provider === "cos" ? config.cos.secretKey.hasSecret : config.r2.secretAccessKey.hasSecret;
 }
 
 function requestGenerationNotificationPermission(): void {
@@ -1910,15 +1948,6 @@ export function App() {
   const [loginError, setLoginError] = useState("");
   const [isInternalSessionLoading, setIsInternalSessionLoading] = useState(true);
   const [isInternalLoginSubmitting, setIsInternalLoginSubmitting] = useState(false);
-  const tldrawUserPreferences = useMemo(() => simplifiedChineseUserPreferences(), []);
-  const tldrawUser = useTldrawUser({
-    userPreferences: tldrawUserPreferences,
-    setUserPreferences: (preferences) =>
-      setUserPreferences({
-        ...preferences,
-        locale: DEFAULT_TLDRAW_LOCALE
-      })
-  });
   const [generationMode, setGenerationMode] = useState<GenerationMode>("text");
   const [prompt, setPrompt] = useState("");
   const [stylePreset, setStylePreset] = useState<StylePresetId>("none");
@@ -2443,7 +2472,7 @@ export function App() {
         },
         body: JSON.stringify(
           storageConfigRequestBody(storageForm, {
-            preserveSecret: !storageSecretTouched && Boolean(storageConfig?.cos.secretKey.hasSecret),
+            preserveSecret: !storageSecretTouched && storageConfigHasSecretForProvider(storageConfig, storageForm.provider),
             forceEnabled: true
           })
         )
@@ -2459,6 +2488,7 @@ export function App() {
         return;
       }
 
+      setStorageForm((current) => ({ ...current, enabled: true }));
       setStorageMessage(result.message);
     } catch (error) {
       setStorageError(error instanceof Error ? error.message : t("storageTestFailed"));
@@ -2480,7 +2510,7 @@ export function App() {
         },
         body: JSON.stringify(
           storageConfigRequestBody(storageForm, {
-            preserveSecret: !storageSecretTouched && Boolean(storageConfig?.cos.secretKey.hasSecret)
+            preserveSecret: !storageSecretTouched && storageConfigHasSecretForProvider(storageConfig, storageForm.provider)
           })
         )
       });
@@ -3059,7 +3089,7 @@ export function App() {
       });
 
       if (!response.ok) {
-        throw new Error(await readErrorMessage(response));
+        throw new Error(await readErrorMessage(response, locale, t));
       }
 
       const session = (await response.json()) as InternalSessionResponse;
@@ -3194,17 +3224,18 @@ export function App() {
               />
               <button
                 aria-label={t("storageSettings")}
-                className={`inline-flex h-7 w-7 items-center justify-center rounded-md border text-xs transition focus:outline-none focus:ring-2 focus:ring-cyan-100 ${
+                className={`inline-flex h-7 items-center justify-center gap-1.5 rounded-md border px-2 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-cyan-100 ${
                   storageConfig?.enabled
                     ? "border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100"
                     : "border-neutral-200 bg-white text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900"
                 }`}
                 data-testid="storage-settings-button"
-                title={storageConfig?.enabled ? t("storageEnabledTitle") : t("storageSettings")}
+                title={storageConfig?.enabled ? t("storageEnabledTitle") : t("storageDisabledTitle")}
                 type="button"
                 onClick={openStorageDialog}
               >
                 <Cloud className="size-4" aria-hidden="true" />
+                <span>{storageConfig?.enabled ? t("storageEnabledShort") : t("storageDisabledShort")}</span>
               </button>
               <div
                 className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium ${
@@ -3752,7 +3783,49 @@ export function App() {
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <label className="block sm:col-span-2">
-                  <span className="control-label">SecretId</span>
+                  <span className="control-label">存储类型</span>
+                  <select
+                    className="field-control"
+                    data-testid="storage-provider"
+                    id="storage-provider"
+                    name="storageProvider"
+                    value={storageForm.provider}
+                    onChange={(event) => {
+                      const provider = event.target.value as CloudStorageProvider;
+                      if (provider === "r2") {
+                        updateStorageForm({
+                          provider,
+                          secretId: storageConfig?.r2.accessKeyId ?? "",
+                          secretKey: storageConfig?.r2.secretAccessKey.value ?? "",
+                          bucket: storageConfig?.r2.bucket ?? "",
+                          region: "auto",
+                          accountId: storageConfig?.r2.accountId ?? "",
+                          endpoint: storageConfig?.r2.endpoint ?? "",
+                          keyPrefix: storageConfig?.r2.keyPrefix ?? "gpt-image-canvas/assets"
+                        });
+                        setStorageSecretTouched(false);
+                        return;
+                      }
+
+                      updateStorageForm({
+                        provider,
+                        secretId: storageConfig?.cos.secretId ?? "",
+                        secretKey: storageConfig?.cos.secretKey.value ?? "",
+                        bucket: storageConfig?.cos.bucket ?? "source-1253253332",
+                        region: storageConfig?.cos.region ?? "ap-nanjing",
+                        accountId: storageConfig?.r2.accountId ?? "",
+                        endpoint: storageConfig?.r2.endpoint ?? "",
+                        keyPrefix: storageConfig?.cos.keyPrefix ?? "gpt-image-canvas/assets"
+                      });
+                      setStorageSecretTouched(false);
+                    }}
+                  >
+                    <option value="cos">腾讯云 COS</option>
+                    <option value="r2">Cloudflare R2</option>
+                  </select>
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="control-label">{storageForm.provider === "r2" ? "Access Key ID" : "SecretId"}</span>
                   <input
                     className="field-control"
                     data-testid="storage-secret-id"
@@ -3763,7 +3836,7 @@ export function App() {
                   />
                 </label>
                 <label className="block sm:col-span-2">
-                  <span className="control-label">SecretKey</span>
+                  <span className="control-label">{storageForm.provider === "r2" ? "Secret Access Key" : "SecretKey"}</span>
                   <input
                     className="field-control"
                     data-testid="storage-secret-key"
@@ -3777,6 +3850,33 @@ export function App() {
                     }}
                   />
                 </label>
+                {storageForm.provider === "r2" ? (
+                  <>
+                    <label className="block">
+                      <span className="control-label">Account ID</span>
+                      <input
+                        className="field-control"
+                        data-testid="storage-account-id"
+                        id="storage-account-id"
+                        name="storageAccountId"
+                        value={storageForm.accountId}
+                        onChange={(event) => updateStorageForm({ accountId: event.target.value })}
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="control-label">Endpoint</span>
+                      <input
+                        className="field-control"
+                        data-testid="storage-endpoint"
+                        id="storage-endpoint"
+                        name="storageEndpoint"
+                        placeholder="https://<account>.r2.cloudflarestorage.com"
+                        value={storageForm.endpoint}
+                        onChange={(event) => updateStorageForm({ endpoint: event.target.value })}
+                      />
+                    </label>
+                  </>
+                ) : null}
                 <label className="block">
                   <span className="control-label">Bucket</span>
                   <input
@@ -3788,17 +3888,19 @@ export function App() {
                     onChange={(event) => updateStorageForm({ bucket: event.target.value })}
                   />
                 </label>
-                <label className="block">
-                  <span className="control-label">Region</span>
-                  <input
-                    className="field-control"
-                    data-testid="storage-region"
-                    id="storage-region"
-                    name="storageRegion"
-                    value={storageForm.region}
-                    onChange={(event) => updateStorageForm({ region: event.target.value })}
-                  />
-                </label>
+                {storageForm.provider === "cos" ? (
+                  <label className="block">
+                    <span className="control-label">Region</span>
+                    <input
+                      className="field-control"
+                      data-testid="storage-region"
+                      id="storage-region"
+                      name="storageRegion"
+                      value={storageForm.region}
+                      onChange={(event) => updateStorageForm({ region: event.target.value })}
+                    />
+                  </label>
+                ) : null}
                 <label className="block sm:col-span-2">
                   <span className="control-label">Key Prefix</span>
                   <input

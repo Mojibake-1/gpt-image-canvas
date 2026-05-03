@@ -165,9 +165,9 @@ NODE_IMAGE=node:22-bookworm-slim docker compose up --build
 
 `OPENAI_API_KEY` may be left empty for local boot checks, in-app local provider configuration, or Codex-login based generation. The app still starts; without any available provider, generation endpoints return a `missing_provider` JSON error and the browser opens on the homepage.
 
-## Tencent Cloud COS Backup
+## Cloud Storage Backup
 
-Generated images are always saved locally first. When COS is enabled from the in-app cloud storage dialog, new generated images are also uploaded to:
+Generated images are always saved locally first. When Tencent Cloud COS or Cloudflare R2 is enabled from the in-app cloud storage dialog, new generated images are also uploaded to:
 
 ```text
 <key-prefix>/YYYY/MM/<assetId>.<ext>
@@ -179,7 +179,14 @@ The default COS form values are read from `.env`:
 - `COS_DEFAULT_REGION`
 - `COS_DEFAULT_KEY_PREFIX`
 
-Saving COS settings performs a test upload and delete before persisting the configuration. `SecretKey` is stored in the local SQLite database because the app has no server-side account system yet, but GET responses only return a masked secret indicator.
+The default R2 form values are read from `.env`:
+
+- `R2_DEFAULT_ACCOUNT_ID`
+- `R2_DEFAULT_ENDPOINT`
+- `R2_DEFAULT_BUCKET`
+- `R2_DEFAULT_KEY_PREFIX`
+
+Saving cloud storage settings performs a test upload and delete before persisting the configuration. Secret keys are stored in the local SQLite database because the app has no server-side account system yet, but GET responses only return a masked secret indicator.
 
 Cloud upload failures do not fail image generation. The asset remains available locally, and the UI marks the history item with the cloud backup failure.
 

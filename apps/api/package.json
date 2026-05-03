@@ -13,6 +13,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1041.0",
     "@gpt-image-canvas/shared": "workspace:^",
     "@hono/node-server": "^2.0.0",
     "better-sqlite3": "^12.9.0",

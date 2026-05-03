@@ -165,9 +165,9 @@ NODE_IMAGE=node:22-bookworm-slim docker compose up --build
 
 `OPENAI_API_KEY` 可以在本地启动检查、使用应用内本地 provider 配置或使用 Codex 登录生成时留空。应用仍会启动；如果没有任何可用 provider，生成端点会返回 `missing_provider` JSON 错误，浏览器默认展示首页。
 
-## 腾讯云 COS 备份
+## 云存储备份
 
-生成图始终先保存到本地。用户在应用内云存储弹窗启用 COS 后，新生成图还会上传到：
+生成图始终先保存到本地。用户在应用内云存储弹窗启用腾讯云 COS 或 Cloudflare R2 后，新生成图还会上传到：
 
 ```text
 <key-prefix>/YYYY/MM/<assetId>.<ext>
@@ -179,9 +179,16 @@ COS 表单默认值来自 `.env`：
 - `COS_DEFAULT_REGION`
 - `COS_DEFAULT_KEY_PREFIX`
 
-保存 COS 配置前会执行一次测试上传和删除。由于当前应用没有服务端账号系统，`SecretKey` 会保存在本地 SQLite 数据库中，但读取配置接口只返回掩码状态，不会回显明文。
+R2 表单默认值来自 `.env`：
 
-COS 上传失败不会导致生成失败。图片仍可从本地读取，生成历史中会显示云备份失败标记。
+- `R2_DEFAULT_ACCOUNT_ID`
+- `R2_DEFAULT_ENDPOINT`
+- `R2_DEFAULT_BUCKET`
+- `R2_DEFAULT_KEY_PREFIX`
+
+保存云存储配置前会执行一次测试上传和删除。由于当前应用没有服务端账号系统，密钥会保存在本地 SQLite 数据库中，但读取配置接口只返回掩码状态，不会回显明文。
+
+云端上传失败不会导致生成失败。图片仍可从本地读取，生成历史中会显示云备份失败标记。
 
 ## 本地数据
 

@@ -6,7 +6,7 @@ export type ImageQuality = "auto" | "low" | "medium" | "high";
 export type OutputFormat = "png" | "jpeg" | "webp";
 export type GenerationStatus = "pending" | "running" | "succeeded" | "partial" | "failed" | "cancelled";
 export type OutputStatus = "succeeded" | "failed";
-export type CloudStorageProvider = "cos";
+export type CloudStorageProvider = "cos" | "r2";
 export type AssetCloudUploadStatus = "uploaded" | "failed";
 
 export interface SizePreset {
@@ -436,10 +436,20 @@ export interface CosStorageConfigView {
   keyPrefix: string;
 }
 
+export interface R2StorageConfigView {
+  accessKeyId: string;
+  secretAccessKey: MaskedSecret;
+  accountId: string;
+  endpoint: string;
+  bucket: string;
+  keyPrefix: string;
+}
+
 export interface StorageConfigResponse {
   enabled: boolean;
   provider: CloudStorageProvider;
   cos: CosStorageConfigView;
+  r2: R2StorageConfigView;
 }
 
 export interface SaveCosStorageConfig {
@@ -451,10 +461,21 @@ export interface SaveCosStorageConfig {
   keyPrefix: string;
 }
 
+export interface SaveR2StorageConfig {
+  accessKeyId: string;
+  secretAccessKey?: string;
+  preserveSecret?: boolean;
+  accountId: string;
+  endpoint?: string;
+  bucket: string;
+  keyPrefix: string;
+}
+
 export interface SaveStorageConfigRequest {
   enabled: boolean;
   provider: CloudStorageProvider;
   cos?: SaveCosStorageConfig;
+  r2?: SaveR2StorageConfig;
 }
 
 export interface StorageTestResult {
