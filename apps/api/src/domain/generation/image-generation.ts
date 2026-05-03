@@ -23,15 +23,15 @@ import {
   type ProviderImage
 } from "../../infrastructure/providers/image-provider.js";
 import {
-  CosAssetStorageAdapter,
   LocalAssetStorageAdapter,
-  buildCosObjectKey,
+  buildCloudObjectKey,
+  createCloudAssetStorageAdapter,
   storageErrorMessage,
-  type CosAssetLocation
+  type CloudAssetLocation
 } from "../../infrastructure/storage/asset-storage.js";
 import { runtimePaths } from "../../infrastructure/runtime.js";
 import { assets, generationOutputs, generationRecords, generationReferenceAssets } from "../../infrastructure/schema.js";
-import { getActiveCosStorageConfig } from "../storage/storage-config.js";
+import { getActiveCloudStorageConfig } from "../storage/storage-config.js";
 
 const BATCH_CONCURRENCY = 2;
 const MAX_REFERENCE_IMAGE_BYTES = 50 * 1024 * 1024;
@@ -43,7 +43,7 @@ interface StoredAssetFile {
   fileName: string;
   filePath: string;
   mimeType: string;
-  cloud?: CosAssetLocation;
+  cloud?: CloudAssetLocation;
 }
 
 interface BatchOutputResult {
@@ -60,7 +60,7 @@ interface SavedProviderImage {
 }
 
 interface AssetCloudStorageRecord {
-  provider: "cos";
+  provider: "cos" | "r2";
   bucket: string;
   region: string;
   objectKey: string;
@@ -262,7 +262,7 @@ export function getStoredAssetFile(assetId: string, ownerEmail?: string): Stored
     fileName: asset.fileName,
     filePath,
     mimeType: asset.mimeType,
-    cloud: toCosAssetLocation(asset)
+    cloud: toCloudAssetLocation(asset)
   };
 }
 
@@ -563,13 +563,14 @@ async function saveAssetToConfiguredCloud(input: {
   mimeType: string;
   createdAt: string;
 }): Promise<AssetCloudStorageRecord | undefined> {
-  const config = getActiveCosStorageConfig();
+  const config = getActiveCloudStorageConfig();
   if (!config) {
     return undefined;
   }
 
-  const objectKey = buildCosObjectKey(config.keyPrefix, input.fileName, input.createdAt);
-  const adapter = new CosAssetStorageAdapter(config);
+  const objectKey = buildCloudObjectKey(config.keyPrefix, input.fileName, input.createdAt);
+  const adapter = createCloudAssetStorageAdapter(config);
+  const region = config.provider === "cos" ? config.region : "auto";
 
   try {
     const result = await adapter.putObject({
@@ -579,9 +580,9 @@ async function saveAssetToConfiguredCloud(input: {
     });
 
     return {
-      provider: "cos",
+      provider: config.provider,
       bucket: config.bucket,
-      region: config.region,
+      region,
       objectKey,
       status: "uploaded",
       uploadedAt: new Date().toISOString(),
@@ -590,9 +591,9 @@ async function saveAssetToConfiguredCloud(input: {
     };
   } catch (error) {
     return {
-      provider: "cos",
+      provider: config.provider,
       bucket: config.bucket,
-      region: config.region,
+      region,
       objectKey,
       status: "failed",
       error: storageErrorMessage(error)
@@ -600,22 +601,22 @@ async function saveAssetToConfiguredCloud(input: {
   }
 }
 
-async function readCloudAsset(location: CosAssetLocation | undefined): Promise<Buffer | undefined> {
-  const config = getActiveCosStorageConfig();
-  if (!location || !config) {
+async function readCloudAsset(location: CloudAssetLocation | undefined): Promise<Buffer | undefined> {
+  const config = getActiveCloudStorageConfig();
+  if (!location || !config || location.provider !== config.provider) {
     return undefined;
   }
 
   try {
-    return await new CosAssetStorageAdapter(config).getObject(location);
+    return await createCloudAssetStorageAdapter(config).getObject(location);
   } catch {
     return undefined;
   }
 }
 
-function toCosAssetLocation(asset: typeof assets.$inferSelect): CosAssetLocation | undefined {
+function toCloudAssetLocation(asset: typeof assets.$inferSelect): CloudAssetLocation | undefined {
   if (
-    asset.cloudProvider !== "cos" ||
+    (asset.cloudProvider !== "cos" && asset.cloudProvider !== "r2") ||
     asset.cloudStatus !== "uploaded" ||
     !asset.cloudBucket ||
     !asset.cloudRegion ||
@@ -625,6 +626,7 @@ function toCosAssetLocation(asset: typeof assets.$inferSelect): CosAssetLocation
   }
 
   return {
+    provider: asset.cloudProvider,
     bucket: asset.cloudBucket,
     region: asset.cloudRegion,
     key: asset.cloudObjectKey

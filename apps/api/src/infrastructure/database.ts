@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS storage_configs (
   secret_key TEXT,
   bucket TEXT,
   region TEXT,
+  endpoint TEXT,
   key_prefix TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -190,6 +191,7 @@ ensureColumn("agent_llm_configs", "base_url", "base_url TEXT NOT NULL DEFAULT ''
 ensureColumn("agent_llm_configs", "model", "model TEXT NOT NULL DEFAULT ''");
 ensureColumn("agent_llm_configs", "timeout_ms", "timeout_ms INTEGER NOT NULL DEFAULT 60000");
 ensureColumn("agent_llm_configs", "supports_vision", "supports_vision INTEGER NOT NULL DEFAULT 0");
+ensureColumn("storage_configs", "endpoint", "endpoint TEXT");
 ensureColumn("generation_records", "owner_email", "owner_email TEXT");
 
 sqlite.exec("CREATE INDEX IF NOT EXISTS generation_records_owner_created_at_idx ON generation_records(owner_email, created_at)");
