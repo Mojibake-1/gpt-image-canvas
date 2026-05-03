@@ -88,7 +88,7 @@ import {
   type StorageTestResult,
   type StylePresetId
 } from "@gpt-image-canvas/shared";
-import { LOCALES, localizedApiErrorMessage, useI18n, type Locale, type Translate } from "./i18n";
+import { localizedApiErrorMessage, useI18n, type Locale, type Translate } from "./i18n";
 
 const AUTOSAVE_DEBOUNCE_MS = 1200;
 const HISTORY_COLLAPSED_LIMIT = 3;
@@ -1729,7 +1729,6 @@ function TopNavigation({
               {t("navGallery")}
             </a>
           </nav>
-          <LanguageSwitcher />
           <button
             aria-label={t("navOpenProviderConfig")}
             className="top-navigation__settings"
@@ -1754,27 +1753,6 @@ function TopNavigation({
         </div>
       </div>
     </header>
-  );
-}
-
-function LanguageSwitcher() {
-  const { locale, setLocale, t } = useI18n();
-
-  return (
-    <div className="language-switcher" aria-label={t("languageAria")} role="group">
-      {LOCALES.map((item) => (
-        <button
-          aria-pressed={locale === item}
-          className="language-switcher__button"
-          data-active={locale === item}
-          key={item}
-          type="button"
-          onClick={() => setLocale(item)}
-        >
-          {item === "zh-CN" ? t("languageZh") : t("languageEn")}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -1922,21 +1900,26 @@ function ProviderStatusPopover({
 export function App() {
   const { formatDateTime, locale, setLocale, t } = useI18n();
   const tldrawLocale = tldrawLocaleForLocale(locale);
-  const tldrawUserPreferences = useMemo<TLUserPreferences>(
-    () => ({
-      id: TLDRAW_USER_ID,
-      locale: tldrawLocale
-    }),
-    [tldrawLocale]
-  );
+  const [tldrawUserPreferences, setTldrawUserPreferences] = useState<TLUserPreferences>(() => ({
+    id: TLDRAW_USER_ID,
+    isSnapMode: true,
+    locale: tldrawLocale
+  }));
   const syncTldrawUserPreferences = useCallback(
     (preferences: TLUserPreferences) => {
+      setTldrawUserPreferences((currentPreferences) => ({
+        ...currentPreferences,
+        ...preferences,
+        id: TLDRAW_USER_ID,
+        locale: preferences.locale ?? currentPreferences.locale ?? tldrawLocale
+      }));
+
       const nextLocale = localeForTldrawLocale(preferences.locale);
       if (nextLocale && nextLocale !== locale) {
         setLocale(nextLocale);
       }
     },
-    [locale, setLocale]
+    [locale, setLocale, tldrawLocale]
   );
   const tldrawUser = useTldrawUser({
     userPreferences: tldrawUserPreferences,
@@ -1997,6 +1980,18 @@ export function App() {
   const codexPollTimerRef = useRef<number | undefined>();
   const saveRequestRef = useRef(0);
   const isGenerating = activeGenerationCount > 0;
+
+  useEffect(() => {
+    setTldrawUserPreferences((currentPreferences) =>
+      currentPreferences.locale === tldrawLocale
+        ? currentPreferences
+        : {
+            ...currentPreferences,
+            id: TLDRAW_USER_ID,
+            locale: tldrawLocale
+          }
+    );
+  }, [tldrawLocale]);
 
   const trimmedPrompt = prompt.trim();
   const promptValidationMessage = prompt.trim() ? "" : t("promptRequired");
