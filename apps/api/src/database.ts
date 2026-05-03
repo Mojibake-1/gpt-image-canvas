@@ -41,6 +41,7 @@ function isSharedMemoryOpenError(error: unknown): boolean {
 sqlite.exec(`
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY NOT NULL,
+  owner_email TEXT,
   name TEXT NOT NULL,
   snapshot_json TEXT NOT NULL,
   created_at TEXT NOT NULL,
@@ -49,6 +50,7 @@ CREATE TABLE IF NOT EXISTS projects (
 
 CREATE TABLE IF NOT EXISTS assets (
   id TEXT PRIMARY KEY NOT NULL,
+  owner_email TEXT,
   file_name TEXT NOT NULL,
   relative_path TEXT NOT NULL,
   mime_type TEXT NOT NULL,
@@ -107,6 +109,7 @@ CREATE TABLE IF NOT EXISTS codex_oauth_tokens (
 
 CREATE TABLE IF NOT EXISTS generation_records (
   id TEXT PRIMARY KEY NOT NULL,
+  owner_email TEXT,
   mode TEXT NOT NULL,
   prompt TEXT NOT NULL,
   effective_prompt TEXT NOT NULL,
@@ -146,6 +149,8 @@ CREATE INDEX IF NOT EXISTS generation_reference_assets_generation_id_idx ON gene
 CREATE INDEX IF NOT EXISTS generation_reference_assets_asset_id_idx ON generation_reference_assets(asset_id);
 `);
 
+ensureColumn("projects", "owner_email", "owner_email TEXT");
+ensureColumn("assets", "owner_email", "owner_email TEXT");
 ensureColumn("assets", "cloud_provider", "cloud_provider TEXT");
 ensureColumn("assets", "cloud_bucket", "cloud_bucket TEXT");
 ensureColumn("assets", "cloud_region", "cloud_region TEXT");
@@ -169,6 +174,9 @@ ensureColumn("provider_configs", "local_api_key", "local_api_key TEXT");
 ensureColumn("provider_configs", "local_base_url", "local_base_url TEXT");
 ensureColumn("provider_configs", "local_model", "local_model TEXT");
 ensureColumn("provider_configs", "local_timeout_ms", "local_timeout_ms INTEGER");
+ensureColumn("generation_records", "owner_email", "owner_email TEXT");
+
+sqlite.exec("CREATE INDEX IF NOT EXISTS generation_records_owner_created_at_idx ON generation_records(owner_email, created_at)");
 
 backfillGenerationReferenceAssets();
 ensureProviderConfigRow();

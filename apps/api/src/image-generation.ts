@@ -83,7 +83,7 @@ const mimeTypes: Record<OutputFormat, string> = {
   webp: "image/webp"
 };
 
-export async function runTextToImageGeneration(input: ImageProviderInput, provider: ImageProvider, signal?: AbortSignal): Promise<GenerationResponse> {
+export async function runTextToImageGeneration(input: ImageProviderInput, provider: ImageProvider, ownerEmail: string, signal?: AbortSignal): Promise<GenerationResponse> {
   const outputs = await mapWithConcurrency(
     Array.from({ length: input.count }, (_, index) => index),
     BATCH_CONCURRENCY,
@@ -95,7 +95,8 @@ export async function runTextToImageGeneration(input: ImageProviderInput, provid
       ...input,
       mode: "generate"
     },
-    outputs
+    outputs,
+    ownerEmail
   );
 
   return {
@@ -106,9 +107,10 @@ export async function runTextToImageGeneration(input: ImageProviderInput, provid
 export async function runReferenceImageGeneration(
   input: EditImageProviderInput,
   provider: ImageProvider,
+  ownerEmail: string,
   signal?: AbortSignal
 ): Promise<GenerationResponse> {
-  const referenceAssetIds = await ensureReferenceAssetIds(input);
+  const referenceAssetIds = await ensureReferenceAssetIds(input, ownerEmail);
   const inputWithReferenceAssets: EditImageProviderInput = {
     ...input,
     referenceAssetIds,
@@ -126,7 +128,8 @@ export async function runReferenceImageGeneration(
       ...inputWithReferenceAssets,
       mode: "edit"
     },
-    outputs
+    outputs,
+    ownerEmail
   );
 
   return {
@@ -134,16 +137,16 @@ export async function runReferenceImageGeneration(
   };
 }
 
-async function ensureReferenceAssetIds(input: EditImageProviderInput): Promise<string[]> {
+async function ensureReferenceAssetIds(input: EditImageProviderInput, ownerEmail: string): Promise<string[]> {
   if (input.referenceAssetIds?.length === input.referenceImages.length) {
     return input.referenceAssetIds;
   }
 
-  const savedReferenceAssets = await Promise.all(input.referenceImages.map(saveReferenceImageInput));
+  const savedReferenceAssets = await Promise.all(input.referenceImages.map((reference) => saveReferenceImageInput(reference, ownerEmail)));
   return savedReferenceAssets.map((asset) => asset.id);
 }
 
-async function saveReferenceImageInput(input: ReferenceImageInput): Promise<GeneratedAsset> {
+async function saveReferenceImageInput(input: ReferenceImageInput, ownerEmail: string): Promise<GeneratedAsset> {
   const parsed = referenceDataUrlToBytes(input);
   const imageSize = await readImageSize(parsed.bytes);
   if (!imageSize) {
@@ -161,6 +164,7 @@ async function saveReferenceImageInput(input: ReferenceImageInput): Promise<Gene
   db.insert(assets)
     .values({
       id: assetId,
+      ownerEmail,
       fileName,
       relativePath,
       mimeType: parsed.mimeType,
@@ -206,9 +210,12 @@ function extensionForMimeType(mimeType: string): string {
   return mimeType === "image/jpeg" ? "jpg" : mimeType.split("/")[1] || "png";
 }
 
-export function getStoredAssetFile(assetId: string): StoredAssetFile | undefined {
+export function getStoredAssetFile(assetId: string, ownerEmail?: string): StoredAssetFile | undefined {
   const asset = db.select().from(assets).where(eq(assets.id, assetId)).get();
   if (!asset) {
+    return undefined;
+  }
+  if (ownerEmail && asset.ownerEmail !== ownerEmail) {
     return undefined;
   }
 
@@ -226,8 +233,8 @@ export function getStoredAssetFile(assetId: string): StoredAssetFile | undefined
   };
 }
 
-export async function readStoredAsset(assetId: string): Promise<{ file: StoredAssetFile; bytes: Buffer } | undefined> {
-  const file = getStoredAssetFile(assetId);
+export async function readStoredAsset(assetId: string, ownerEmail?: string): Promise<{ file: StoredAssetFile; bytes: Buffer } | undefined> {
+  const file = getStoredAssetFile(assetId, ownerEmail);
   if (!file) {
     return undefined;
   }
@@ -251,8 +258,8 @@ export async function readStoredAsset(assetId: string): Promise<{ file: StoredAs
   }
 }
 
-export async function readStoredAssetMetadata(assetId: string): Promise<AssetMetadataResponse | undefined> {
-  const asset = await readStoredAsset(assetId);
+export async function readStoredAssetMetadata(assetId: string, ownerEmail?: string): Promise<AssetMetadataResponse | undefined> {
+  const asset = await readStoredAsset(assetId, ownerEmail);
   if (!asset) {
     return undefined;
   }
@@ -400,7 +407,7 @@ async function readImageSize(bytes: Buffer): Promise<ImageSize | undefined> {
   }
 }
 
-function saveGenerationRecord(input: PersistedGenerationInput, outputs: BatchOutputResult[]): GenerationRecord {
+function saveGenerationRecord(input: PersistedGenerationInput, outputs: BatchOutputResult[], ownerEmail: string): GenerationRecord {
   const createdAt = new Date().toISOString();
   const generationId = randomUUID();
   const successCount = outputs.filter((output) => output.status === "succeeded").length;
@@ -414,6 +421,7 @@ function saveGenerationRecord(input: PersistedGenerationInput, outputs: BatchOut
   db.insert(generationRecords)
     .values({
       id: generationId,
+      ownerEmail,
       mode: input.mode,
       prompt: input.originalPrompt,
       effectivePrompt: input.prompt,
@@ -446,6 +454,7 @@ function saveGenerationRecord(input: PersistedGenerationInput, outputs: BatchOut
       db.insert(assets)
         .values({
           id: output.asset.id,
+          ownerEmail,
           fileName: output.asset.fileName,
           relativePath: `assets/${output.asset.fileName}`,
           mimeType: output.asset.mimeType,

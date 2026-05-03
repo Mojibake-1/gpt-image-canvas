@@ -34,8 +34,10 @@ import {
   type TLShapeId,
   type TLStoreSnapshot,
   type TLComponents,
-  type TldrawOptions,
   type TLUserPreferences,
+  type TldrawOptions,
+  getUserPreferences,
+  setUserPreferences,
   useIsDarkMode,
   useEditor,
   useTldrawUser,
@@ -46,7 +48,6 @@ import {
   GenerationPlaceholderShapeUtil,
   type GenerationPlaceholderShape
 } from "./GenerationPlaceholderShape";
-import { HomePage } from "./HomePage";
 import { ProviderConfigDialog } from "./ProviderConfigDialog";
 import {
   CUSTOM_SIZE_PRESET_ID,
@@ -105,6 +106,7 @@ const RESOLUTION_BADGE_BASE_OFFSET = 7;
 const RESOLUTION_BADGE_MIN_SCALE = 0.52;
 const RESOLUTION_BADGE_SMALL_IMAGE_SIDE = 32;
 const RESOLUTION_BADGE_FULL_SIZE_IMAGE_SIDE = 220;
+const DEFAULT_TLDRAW_LOCALE = "zh-cn";
 const shapeUtils = [GenerationPlaceholderShapeUtil];
 const tldrawOptions = {
   debouncedZoomThreshold: 80
@@ -187,7 +189,7 @@ function preloadGalleryPage(): void {
 }
 
 type PersistedSnapshot = TLEditorSnapshot | TLStoreSnapshot;
-type AppRoute = "home" | "canvas" | "gallery";
+type AppRoute = "canvas" | "gallery";
 type SaveStatus = "loading" | "saved" | "pending" | "saving" | "error";
 type GenerationMode = "text" | "reference";
 type PanelStatusTone = "progress" | "success" | "warning" | "error";
@@ -246,6 +248,11 @@ interface StorageConfigFormState {
   bucket: string;
   region: string;
   keyPrefix: string;
+}
+
+interface InternalSessionResponse {
+  authenticated: boolean;
+  email?: string;
 }
 
 interface ReferenceSelectionItem {
@@ -336,18 +343,10 @@ function imageSizeValidationMessage(reason: ImageSizeValidationReason | undefine
 }
 
 function routeFromLocation(): AppRoute {
-  if (window.location.pathname === "/canvas") {
-    return "canvas";
-  }
-
-  return window.location.pathname === "/gallery" ? "gallery" : "home";
+  return window.location.pathname === "/gallery" ? "gallery" : "canvas";
 }
 
 function pathForRoute(route: AppRoute): string {
-  if (route === "canvas") {
-    return "/canvas";
-  }
-
   return route === "gallery" ? "/gallery" : "/";
 }
 
@@ -580,8 +579,37 @@ function createTldrawAssetId(assetId: string): TLAssetId {
   return `asset:${assetId}` as TLAssetId;
 }
 
+function createBrowserUuid(): string {
+  const browserCrypto = globalThis.crypto;
+  if (typeof browserCrypto?.randomUUID === "function") {
+    return browserCrypto.randomUUID();
+  }
+
+  const bytes = new Uint8Array(16);
+  if (typeof browserCrypto?.getRandomValues === "function") {
+    browserCrypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function createTldrawShapeId(): TLShapeId {
-  return `shape:${crypto.randomUUID()}` as TLShapeId;
+  return `shape:${createBrowserUuid()}` as TLShapeId;
+}
+
+function simplifiedChineseUserPreferences(): TLUserPreferences {
+  return {
+    ...getUserPreferences(),
+    locale: DEFAULT_TLDRAW_LOCALE
+  };
 }
 
 function displaySize(size: ImageSize): { width: number; height: number } {
@@ -1540,12 +1568,79 @@ function BrandName() {
   );
 }
 
+function InternalLoginScreen({
+  email,
+  error,
+  isLoading,
+  isSubmitting,
+  onEmailChange,
+  onSubmit
+}: {
+  email: string;
+  error: string;
+  isLoading: boolean;
+  isSubmitting: boolean;
+  onEmailChange: (email: string) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <main className="app-root flex min-h-screen items-center justify-center bg-neutral-950 px-4 py-10 text-neutral-900">
+      <section className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-6 shadow-2xl">
+        <div className="flex items-center gap-3">
+          <BrandMark className="brand-mark--large" />
+          <div className="min-w-0">
+            <BrandName />
+            <p className="mt-1 text-sm text-neutral-500">沐星内部 AI 图像画布</p>
+          </div>
+        </div>
+
+        <form
+          className="mt-7 space-y-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSubmit();
+          }}
+        >
+          <label className="block">
+            <span className="control-label">公司邮箱</span>
+            <input
+              autoComplete="email"
+              autoFocus
+              className="field-control h-11"
+              disabled={isLoading || isSubmitting}
+              inputMode="email"
+              type="email"
+              value={email}
+              onChange={(event) => onEmailChange(event.target.value)}
+            />
+          </label>
+
+          {error ? (
+            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm leading-5 text-red-700" role="alert">
+              {error}
+            </p>
+          ) : null}
+
+          <button className="primary-action h-11 w-full" disabled={isLoading || isSubmitting} type="submit">
+            {isLoading || isSubmitting ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <ShieldCheck className="size-4" aria-hidden="true" />}
+            进入 Canvas
+          </button>
+        </form>
+      </section>
+    </main>
+  );
+}
+
 function TopNavigation({
+  internalUserEmail,
+  onLogoutInternalUser,
   onOpenProviderConfig,
   route,
   onNavigate,
   onPreloadGallery
 }: {
+  internalUserEmail: string;
+  onLogoutInternalUser: () => void;
   onOpenProviderConfig: () => void;
   route: AppRoute;
   onNavigate: (route: AppRoute) => void;
@@ -1566,25 +1661,11 @@ function TopNavigation({
         <div className="top-navigation__actions">
           <nav aria-label={t("navMainAria")} className="top-navigation__links">
             <a
-              aria-current={route === "home" ? "page" : undefined}
-              className="top-navigation__link"
-              data-active={route === "home"}
-              data-testid="nav-home"
-              href="/"
-              onClick={(event) => {
-                event.preventDefault();
-                onNavigate("home");
-              }}
-            >
-              <Sparkles className="size-4" aria-hidden="true" />
-              {t("navHome")}
-            </a>
-            <a
               aria-current={route === "canvas" ? "page" : undefined}
               className="top-navigation__link"
               data-active={route === "canvas"}
               data-testid="nav-canvas"
-              href="/canvas"
+              href="/"
               onClick={(event) => {
                 event.preventDefault();
                 onNavigate("canvas");
@@ -1621,6 +1702,16 @@ function TopNavigation({
           >
             <Settings className="size-4" aria-hidden="true" />
             <span>{t("navSettings")}</span>
+          </button>
+          <button
+            aria-label="Logout current account"
+            className="top-navigation__settings"
+            title={internalUserEmail}
+            type="button"
+            onClick={onLogoutInternalUser}
+          >
+            <LogOut className="size-4" aria-hidden="true" />
+            <span className="max-w-40 truncate">{internalUserEmail}</span>
           </button>
         </div>
       </div>
@@ -1814,7 +1905,20 @@ export function App() {
     setUserPreferences: syncTldrawUserPreferences
   });
   const [route, setRoute] = useState<AppRoute>(() => routeFromLocation());
-  const shouldAutoOpenCanvasRef = useRef(route !== "gallery");
+  const [internalUserEmail, setInternalUserEmail] = useState<string | null>(null);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [isInternalSessionLoading, setIsInternalSessionLoading] = useState(true);
+  const [isInternalLoginSubmitting, setIsInternalLoginSubmitting] = useState(false);
+  const tldrawUserPreferences = useMemo(() => simplifiedChineseUserPreferences(), []);
+  const tldrawUser = useTldrawUser({
+    userPreferences: tldrawUserPreferences,
+    setUserPreferences: (preferences) =>
+      setUserPreferences({
+        ...preferences,
+        locale: DEFAULT_TLDRAW_LOCALE
+      })
+  });
   const [generationMode, setGenerationMode] = useState<GenerationMode>("text");
   const [prompt, setPrompt] = useState("");
   const [stylePreset, setStylePreset] = useState<StylePresetId>("none");
@@ -1864,7 +1968,6 @@ export function App() {
   const codexPollTimerRef = useRef<number | undefined>();
   const saveRequestRef = useRef(0);
   const isGenerating = activeGenerationCount > 0;
-  const hasGenerationProvider = authStatus?.provider === "openai" || authStatus?.provider === "codex";
 
   const trimmedPrompt = prompt.trim();
   const promptValidationMessage = prompt.trim() ? "" : t("promptRequired");
@@ -1890,10 +1993,6 @@ export function App() {
   );
 
   const navigateToRoute = useCallback((nextRoute: AppRoute, options: { replace?: boolean } = {}): void => {
-    if (!options.replace) {
-      shouldAutoOpenCanvasRef.current = false;
-    }
-
     const nextPath = pathForRoute(nextRoute);
     if (window.location.pathname !== nextPath) {
       if (options.replace) {
@@ -2016,6 +2115,52 @@ export function App() {
   useEffect(() => {
     const controller = new AbortController();
 
+    async function loadInternalSession(): Promise<void> {
+      setIsInternalSessionLoading(true);
+      setLoginError("");
+
+      try {
+        const response = await fetch("/api/internal-session", {
+          signal: controller.signal
+        });
+        if (!response.ok) {
+          throw new Error(`Session check failed with ${response.status}`);
+        }
+
+        const session = (await response.json()) as InternalSessionResponse;
+        if (!controller.signal.aborted) {
+          setInternalUserEmail(session.authenticated && session.email ? session.email : null);
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setInternalUserEmail(null);
+          setLoginError("无法读取登录状态，请刷新后重试。");
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsInternalSessionLoading(false);
+        }
+      }
+    }
+
+    void loadInternalSession();
+
+    return () => {
+      controller.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!internalUserEmail) {
+      setIsProjectLoaded(false);
+      setSaveStatus("loading");
+      setProjectSnapshot(undefined);
+      setGenerationHistory([]);
+      return;
+    }
+
+    const controller = new AbortController();
+
     async function loadProject(): Promise<void> {
       setSaveStatus("loading");
       setSaveError("");
@@ -2055,9 +2200,15 @@ export function App() {
     return () => {
       controller.abort();
     };
-  }, []);
+  }, [internalUserEmail]);
 
   useEffect(() => {
+    if (!internalUserEmail) {
+      setIsAuthLoading(false);
+      setAuthStatus(null);
+      return;
+    }
+
     const controller = new AbortController();
 
     void loadAuthStatus(controller.signal);
@@ -2065,25 +2216,14 @@ export function App() {
     return () => {
       controller.abort();
     };
-  }, [loadAuthStatus]);
+  }, [internalUserEmail, loadAuthStatus]);
 
   useEffect(() => {
-    if (isAuthLoading || !authStatus || route === "gallery") {
+    if (!internalUserEmail) {
+      setStorageConfig(null);
       return;
     }
 
-    if (route === "home" && hasGenerationProvider && shouldAutoOpenCanvasRef.current) {
-      shouldAutoOpenCanvasRef.current = false;
-      navigateToRoute("canvas", { replace: true });
-      return;
-    }
-
-    if (route === "canvas" && !hasGenerationProvider) {
-      navigateToRoute("home", { replace: true });
-    }
-  }, [authStatus, hasGenerationProvider, isAuthLoading, navigateToRoute, route]);
-
-  useEffect(() => {
     const controller = new AbortController();
 
     async function loadStorageConfig(): Promise<void> {
@@ -2115,7 +2255,7 @@ export function App() {
     return () => {
       controller.abort();
     };
-  }, [t]);
+  }, [internalUserEmail, t]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(MOBILE_DRAWER_MEDIA_QUERY);
@@ -2899,25 +3039,76 @@ export function App() {
     setGenerationWarning("");
   }
 
+  async function loginInternalUser(): Promise<void> {
+    const email = loginEmail.trim().toLowerCase();
+    setLoginError("");
+
+    if (!email.endsWith("@muxing.cfd")) {
+      setLoginError("请输入 @muxing.cfd 后缀的公司邮箱。");
+      return;
+    }
+
+    setIsInternalLoginSubmitting(true);
+    try {
+      const response = await fetch("/api/internal-login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ email })
+      });
+
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response));
+      }
+
+      const session = (await response.json()) as InternalSessionResponse;
+      if (!session.authenticated || !session.email) {
+        throw new Error("登录失败，请重试。");
+      }
+
+      setInternalUserEmail(session.email);
+      setLoginEmail(session.email);
+      setLoginError("");
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "登录失败，请重试。");
+    } finally {
+      setIsInternalLoginSubmitting(false);
+    }
+  }
+
+  async function logoutInternalUser(): Promise<void> {
+    await fetch("/api/internal-logout", { method: "POST" }).catch(() => undefined);
+    setInternalUserEmail(null);
+    setProjectSnapshot(undefined);
+    setGenerationHistory([]);
+    setIsProjectLoaded(false);
+    setSaveStatus("loading");
+  }
+
+  if (isInternalSessionLoading || !internalUserEmail) {
+    return (
+      <InternalLoginScreen
+        email={loginEmail}
+        error={loginError}
+        isLoading={isInternalSessionLoading}
+        isSubmitting={isInternalLoginSubmitting}
+        onEmailChange={setLoginEmail}
+        onSubmit={() => void loginInternalUser()}
+      />
+    );
+  }
+
   return (
-    <div className="app-root" data-canvas-theme={route !== "home" && isCanvasDarkMode ? "dark" : "light"}>
+    <div className="app-root" data-canvas-theme={isCanvasDarkMode ? "dark" : "light"}>
       <TopNavigation
+        internalUserEmail={internalUserEmail}
         route={route}
         onNavigate={navigateToRoute}
+        onLogoutInternalUser={() => void logoutInternalUser()}
         onOpenProviderConfig={() => setIsProviderConfigDialogOpen(true)}
         onPreloadGallery={preloadGalleryPage}
       />
-      {route === "home" ? (
-        <HomePage
-          authError={authError}
-          authStatus={authStatus}
-          isAuthLoading={isAuthLoading}
-          isCodexStarting={codexLoginStatus === "starting"}
-          onOpenProviderConfig={() => setIsProviderConfigDialogOpen(true)}
-          onOpenGallery={() => navigateToRoute("gallery")}
-          onStartCodexLogin={startCodexLogin}
-        />
-      ) : null}
       <main className="app-shell app-view relative flex min-h-0 overflow-hidden bg-neutral-950 text-neutral-900" data-active-route={route} hidden={route !== "canvas"}>
       <section
         className="relative min-w-0 flex-1 bg-neutral-100 outline-none"

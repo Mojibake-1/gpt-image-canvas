@@ -56,8 +56,12 @@ export function parsePreviewWidth(value: string | undefined): PreviewWidthResult
   };
 }
 
-export async function readStoredAssetPreview(assetId: string, width: number): Promise<StoredAssetPreview | undefined> {
-  const asset = await readStoredAsset(assetId);
+export async function readStoredAssetPreview(
+  assetId: string,
+  width: number,
+  ownerEmail?: string
+): Promise<StoredAssetPreview | undefined> {
+  const asset = await readStoredAsset(assetId, ownerEmail);
   if (!asset) {
     return undefined;
   }
