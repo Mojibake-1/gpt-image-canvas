@@ -17,6 +17,7 @@ import { db } from "./database.js";
 import {
   DEFAULT_OPENAI_IMAGE_TIMEOUT_MS,
   getConfiguredImageModel,
+  isCodexCliCompatibleEndpoint,
   parseOpenAIImageTimeoutMs,
   type OpenAIImageProviderConfig
 } from "./image-provider.js";
@@ -104,7 +105,8 @@ export function getEnvironmentOpenAIImageProviderConfig(): OpenAIImageProviderCo
     apiKey,
     baseURL: baseURL || undefined,
     model: getConfiguredImageModel(),
-    timeoutMs: parseOpenAIImageTimeoutMs(process.env.OPENAI_IMAGE_TIMEOUT_MS)
+    timeoutMs: parseOpenAIImageTimeoutMs(process.env.OPENAI_IMAGE_TIMEOUT_MS),
+    codexCliCompatible: isCodexCliCompatibleEndpoint(baseURL)
   };
 }
 
@@ -115,11 +117,13 @@ export function getLocalOpenAIImageProviderConfig(): OpenAIImageProviderConfig |
     return undefined;
   }
 
+  const baseURL = trimToUndefined(row?.localBaseUrl);
   return {
     apiKey,
-    baseURL: trimToUndefined(row?.localBaseUrl),
+    baseURL,
     model: trimToUndefined(row?.localModel) ?? IMAGE_MODEL,
-    timeoutMs: validTimeoutMs(row?.localTimeoutMs) ?? DEFAULT_OPENAI_IMAGE_TIMEOUT_MS
+    timeoutMs: validTimeoutMs(row?.localTimeoutMs) ?? DEFAULT_OPENAI_IMAGE_TIMEOUT_MS,
+    codexCliCompatible: isCodexCliCompatibleEndpoint(baseURL)
   };
 }
 

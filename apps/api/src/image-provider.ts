@@ -58,6 +58,7 @@ export interface OpenAIImageProviderConfig {
   baseURL?: string;
   model: string;
   timeoutMs: number;
+  codexCliCompatible?: boolean;
 }
 
 export const DEFAULT_OPENAI_IMAGE_TIMEOUT_MS = 20 * 60 * 1000;
@@ -98,7 +99,8 @@ export function getOpenAIImageProviderConfig():
       apiKey,
       baseURL: baseURL || undefined,
       model: getConfiguredImageModel(),
-      timeoutMs: parseOpenAIImageTimeoutMs(process.env.OPENAI_IMAGE_TIMEOUT_MS)
+      timeoutMs: parseOpenAIImageTimeoutMs(process.env.OPENAI_IMAGE_TIMEOUT_MS),
+      codexCliCompatible: isCodexCliCompatibleEndpoint(baseURL)
     }
   };
 }
@@ -128,15 +130,22 @@ class OpenAIImageProvider implements ImageProvider {
 
   async generate(input: ImageProviderInput, signal?: AbortSignal): Promise<ProviderResult> {
     try {
+      const body: FlexibleImageGenerateParams = {
+        model: this.config.model,
+        prompt: providerPrompt(input.prompt, this.config.codexCliCompatible),
+        size: input.sizeApiValue,
+        output_format: input.outputFormat
+      };
+
+      if (!this.config.codexCliCompatible) {
+        body.quality = input.quality;
+      }
+      if (input.count > 1) {
+        body.n = input.count;
+      }
+
       const response = await this.client.images.generate(
-        imageGenerateRequestBody({
-          model: this.config.model,
-          prompt: input.prompt,
-          size: input.sizeApiValue,
-          quality: input.quality,
-          output_format: input.outputFormat,
-          n: input.count
-        }),
+        imageGenerateRequestBody(body),
         { signal }
       );
 
@@ -149,16 +158,23 @@ class OpenAIImageProvider implements ImageProvider {
   async edit(input: EditImageProviderInput, signal?: AbortSignal): Promise<ProviderResult> {
     try {
       const references = await Promise.all(input.referenceImages.map((referenceImage) => dataUrlToFile(referenceImage)));
+      const body: FlexibleImageEditParams = {
+        model: this.config.model,
+        image: references,
+        prompt: providerPrompt(input.prompt, this.config.codexCliCompatible),
+        size: input.sizeApiValue,
+        output_format: input.outputFormat
+      };
+
+      if (!this.config.codexCliCompatible) {
+        body.quality = input.quality;
+      }
+      if (input.count > 1) {
+        body.n = input.count;
+      }
+
       const response = await this.client.images.edit(
-        imageEditRequestBody({
-          model: this.config.model,
-          image: references,
-          prompt: input.prompt,
-          size: input.sizeApiValue,
-          quality: input.quality,
-          output_format: input.outputFormat,
-          n: input.count
-        }),
+        imageEditRequestBody(body),
         { signal }
       );
 
@@ -167,6 +183,36 @@ class OpenAIImageProvider implements ImageProvider {
       throw toProviderError(error);
     }
   }
+}
+
+export function isCodexCliCompatibleEndpoint(baseURL: string | undefined): boolean {
+  const override = process.env.OPENAI_CODEX_CLI_COMPAT?.trim().toLowerCase();
+  if (override === "1" || override === "true" || override === "yes") {
+    return true;
+  }
+  if (override === "0" || override === "false" || override === "no") {
+    return false;
+  }
+
+  if (!baseURL) {
+    return false;
+  }
+
+  try {
+    const url = new URL(baseURL);
+    const host = url.hostname.toLowerCase();
+    return (
+      (host === "127.0.0.1" && url.port === "45047") ||
+      (host === "localhost" && url.port === "45047") ||
+      host.startsWith("cpa.")
+    );
+  } catch {
+    return /(^|\/|:)45047(\/|$)|cpa\./i.test(baseURL);
+  }
+}
+
+function providerPrompt(prompt: string, codexCliCompatible: boolean | undefined): string {
+  return codexCliCompatible ? `Use the following text as the complete prompt. Do not rewrite it:\n${prompt}` : prompt;
 }
 
 function imageGenerateRequestBody(body: FlexibleImageGenerateParams): ImageGenerateParamsNonStreaming {
