@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { WebSocketServer } from "ws";
 import { runtimePaths } from "../infrastructure/runtime.js";
 import { errorResponse } from "./http/errors.js";
+import { registerInternalAuthMiddleware, registerInternalAuthRoutes } from "./internal-auth.js";
 import { registerAgentConfigRoutes } from "./routes/agent-config.js";
 import { registerAgentWebSocketRoutes } from "./routes/agent-ws.js";
 import { registerAssetRoutes } from "./routes/assets.js";
@@ -27,6 +28,8 @@ export function createApp(): Hono {
   });
 
   registerCoreRoutes(app);
+  registerInternalAuthRoutes(app);
+  registerInternalAuthMiddleware(app);
   registerAuthRoutes(app);
   registerProviderConfigRoutes(app);
   registerAgentConfigRoutes(app);

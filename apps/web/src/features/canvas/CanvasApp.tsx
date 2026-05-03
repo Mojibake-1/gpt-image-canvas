@@ -63,6 +63,7 @@ import {
   summarizeGenerationPlanOutputs
 } from "../agent/AgentPlanNodeShape";
 import { HomePage } from "../home/HomePage";
+import { InternalLoginScreen, type InternalSessionResponse } from "./InternalLoginScreen";
 import { ProviderConfigDialog } from "../provider-config/ProviderConfigDialog";
 import {
   CUSTOM_SIZE_PRESET_ID,
@@ -2165,11 +2166,15 @@ function BrandName() {
 }
 
 function TopNavigation({
+  internalUserEmail,
+  onLogoutInternalUser,
   onOpenProviderConfig,
   route,
   onNavigate,
   onPreloadGallery
 }: {
+  internalUserEmail: string;
+  onLogoutInternalUser: () => void;
   onOpenProviderConfig: () => void;
   route: AppRoute;
   onNavigate: (route: AppRoute) => void;
@@ -2245,6 +2250,16 @@ function TopNavigation({
           >
             <Settings className="size-4" aria-hidden="true" />
             <span>{t("navSettings")}</span>
+          </button>
+          <button
+            aria-label="Logout current account"
+            className="top-navigation__settings"
+            title={internalUserEmail}
+            type="button"
+            onClick={onLogoutInternalUser}
+          >
+            <LogOut className="size-4" aria-hidden="true" />
+            <span className="max-w-40 truncate">{internalUserEmail}</span>
           </button>
         </div>
       </div>
@@ -2449,6 +2464,11 @@ export function App() {
   });
   const [route, setRoute] = useState<AppRoute>(() => routeFromLocation());
   const shouldAutoOpenCanvasRef = useRef(route !== "gallery");
+  const [internalUserEmail, setInternalUserEmail] = useState<string | null>(null);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [isInternalSessionLoading, setIsInternalSessionLoading] = useState(true);
+  const [isInternalLoginSubmitting, setIsInternalLoginSubmitting] = useState(false);
   const [panelTab, setPanelTab] = useState<PanelTab>("manual");
   const [generationMode, setGenerationMode] = useState<GenerationMode>("text");
   const [prompt, setPrompt] = useState("");
@@ -2770,6 +2790,53 @@ export function App() {
   useEffect(() => {
     const controller = new AbortController();
 
+    async function loadInternalSession(): Promise<void> {
+      setIsInternalSessionLoading(true);
+      setLoginError("");
+
+      try {
+        const response = await fetch("/api/internal-session", { signal: controller.signal });
+        if (!response.ok) {
+          throw new Error(`Session check failed with ${response.status}`);
+        }
+
+        const session = (await response.json()) as InternalSessionResponse;
+        if (!controller.signal.aborted) {
+          setInternalUserEmail(session.authenticated && session.email ? session.email : null);
+          if (session.email) {
+            setLoginEmail(session.email);
+          }
+        }
+      } catch {
+        if (!controller.signal.aborted) {
+          setInternalUserEmail(null);
+          setLoginError("????????????????");
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsInternalSessionLoading(false);
+        }
+      }
+    }
+
+    void loadInternalSession();
+
+    return () => {
+      controller.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!internalUserEmail) {
+      setIsProjectLoaded(false);
+      setSaveStatus("loading");
+      setProjectSnapshot(undefined);
+      setGenerationHistory([]);
+      return;
+    }
+
+    const controller = new AbortController();
+
     async function loadProject(): Promise<void> {
       setSaveStatus("loading");
       setSaveError("");
@@ -2809,9 +2876,15 @@ export function App() {
     return () => {
       controller.abort();
     };
-  }, []);
+  }, [internalUserEmail, t]);
 
   useEffect(() => {
+    if (!internalUserEmail) {
+      setIsAuthLoading(false);
+      setAuthStatus(null);
+      return;
+    }
+
     const controller = new AbortController();
 
     void loadAuthStatus(controller.signal);
@@ -2819,9 +2892,15 @@ export function App() {
     return () => {
       controller.abort();
     };
-  }, [loadAuthStatus]);
+  }, [internalUserEmail, loadAuthStatus]);
 
   useEffect(() => {
+    if (!internalUserEmail) {
+      setIsAgentConfigLoading(false);
+      setAgentConfig(null);
+      return;
+    }
+
     const controller = new AbortController();
 
     void loadAgentConfig(controller.signal);
@@ -2829,7 +2908,7 @@ export function App() {
     return () => {
       controller.abort();
     };
-  }, [loadAgentConfig]);
+  }, [internalUserEmail, loadAgentConfig]);
 
   useEffect(() => {
     const transcript = agentTranscriptRef.current;
@@ -2857,6 +2936,11 @@ export function App() {
   }, [authStatus, hasGenerationProvider, isAuthLoading, navigateToRoute, route]);
 
   useEffect(() => {
+    if (!internalUserEmail) {
+      setStorageConfig(null);
+      return;
+    }
+
     const controller = new AbortController();
 
     async function loadStorageConfig(): Promise<void> {
@@ -2888,7 +2972,7 @@ export function App() {
     return () => {
       controller.abort();
     };
-  }, [t]);
+  }, [internalUserEmail, t]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(MOBILE_DRAWER_MEDIA_QUERY);
@@ -4885,10 +4969,72 @@ export function App() {
     }
   }
 
+  async function loginInternalUser(): Promise<void> {
+    const email = loginEmail.trim().toLowerCase();
+    setLoginError("");
+
+    if (!email.endsWith("@muxing.cfd")) {
+      setLoginError("??? @muxing.cfd ????????");
+      return;
+    }
+
+    setIsInternalLoginSubmitting(true);
+    try {
+      const response = await fetch("/api/internal-login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ email })
+      });
+
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response, locale, t));
+      }
+
+      const session = (await response.json()) as InternalSessionResponse;
+      if (!session.authenticated || !session.email) {
+        throw new Error("?????????");
+      }
+
+      setInternalUserEmail(session.email);
+      setLoginEmail(session.email);
+      setLoginError("");
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "?????????");
+    } finally {
+      setIsInternalLoginSubmitting(false);
+    }
+  }
+
+  async function logoutInternalUser(): Promise<void> {
+    await fetch("/api/internal-logout", { method: "POST" }).catch(() => undefined);
+    setInternalUserEmail(null);
+    setProjectSnapshot(undefined);
+    setGenerationHistory([]);
+    setIsProjectLoaded(false);
+    setSaveStatus("loading");
+  }
+
+  if (isInternalSessionLoading || !internalUserEmail) {
+    return (
+      <InternalLoginScreen
+        email={loginEmail}
+        error={loginError}
+        isLoading={isInternalSessionLoading}
+        isSubmitting={isInternalLoginSubmitting}
+        onEmailChange={setLoginEmail}
+        onSubmit={() => void loginInternalUser()}
+      />
+    );
+  }
+
   return (
     <div className="app-root" data-canvas-theme={route !== "home" && isCanvasDarkMode ? "dark" : "light"}>
       <TopNavigation
+        internalUserEmail={internalUserEmail}
         route={route}
+        onLogoutInternalUser={() => void logoutInternalUser()}
         onNavigate={navigateToRoute}
         onOpenProviderConfig={() => setIsProviderConfigDialogOpen(true)}
         onPreloadGallery={preloadGalleryPage}

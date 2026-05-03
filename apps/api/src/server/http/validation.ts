@@ -95,7 +95,7 @@ export function parseCodexPollPayload(input: unknown): ParseResult<{ deviceAuthI
   };
 }
 
-export function parseEditPayload(input: unknown): ParseResult<EditImageProviderInput> {
+export function parseEditPayload(input: unknown, ownerEmail?: string): ParseResult<EditImageProviderInput> {
   const base = parseBaseImagePayload(input);
   if (!base.ok) {
     return base;
@@ -119,7 +119,7 @@ export function parseEditPayload(input: unknown): ParseResult<EditImageProviderI
   }
 
   for (const referenceAssetId of referenceAssetIds.value) {
-    if (!getStoredAssetFile(referenceAssetId)) {
+    if (!getStoredAssetFile(referenceAssetId, ownerEmail)) {
       return {
         ok: false,
         error: errorResponse("invalid_request", "找不到可记录的参考图像资源。")

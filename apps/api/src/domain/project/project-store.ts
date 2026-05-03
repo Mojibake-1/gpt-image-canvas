@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import type {
   GeneratedAsset,
   GalleryImageItem,
@@ -32,20 +32,25 @@ function parseSnapshot(snapshotJson: string): unknown | null {
 }
 
 export function ensureDefaultProject(): void {
-  const existing = getDefaultProjectRow();
+  ensureProjectForOwner(DEFAULT_PROJECT_ID, DEFAULT_PROJECT_NAME);
+}
+
+export function ensureProjectForOwner(ownerEmail: string, projectName = DEFAULT_PROJECT_NAME): void {
+  const existing = getProjectRow(ownerEmail);
 
   if (existing) {
     return;
   }
-  if (defaultProjectRowExists()) {
+  if (projectRowExists(ownerEmail)) {
     return;
   }
 
   const createdAt = nowIso();
   db.insert(projects)
     .values({
-      id: DEFAULT_PROJECT_ID,
-      name: DEFAULT_PROJECT_NAME,
+      id: ownerEmail,
+      ownerEmail,
+      name: projectName,
       snapshotJson: "null",
       createdAt,
       updatedAt: createdAt
@@ -53,11 +58,11 @@ export function ensureDefaultProject(): void {
     .run();
 }
 
-export function saveProjectSnapshot(input: ProjectSnapshotInput): ProjectState {
-  ensureDefaultProject();
+export function saveProjectSnapshot(input: ProjectSnapshotInput, ownerEmail = DEFAULT_PROJECT_ID): ProjectState {
+  ensureProjectForOwner(ownerEmail);
 
   const updatedAt = nowIso();
-  const current = getDefaultProjectRow();
+  const current = getProjectRow(ownerEmail);
 
   db.update(projects)
     .set({
@@ -65,23 +70,23 @@ export function saveProjectSnapshot(input: ProjectSnapshotInput): ProjectState {
       snapshotJson: input.snapshotJson,
       updatedAt
     })
-    .where(eq(projects.id, DEFAULT_PROJECT_ID))
+    .where(eq(projects.id, ownerEmail))
     .run();
 
-  return getProjectState();
+  return getProjectState(ownerEmail);
 }
 
-export function getProjectState(): ProjectState {
-  ensureDefaultProject();
+export function getProjectState(ownerEmail = DEFAULT_PROJECT_ID): ProjectState {
+  ensureProjectForOwner(ownerEmail);
 
-  const project = getDefaultProjectRow();
+  const project = getProjectRow(ownerEmail);
 
   if (!project) {
     return {
-      id: DEFAULT_PROJECT_ID,
+      id: ownerEmail,
       name: DEFAULT_PROJECT_NAME,
       snapshot: null,
-      history: getGenerationHistory(),
+      history: getGenerationHistory(ownerEmail),
       updatedAt: nowIso()
     };
   }
@@ -90,12 +95,12 @@ export function getProjectState(): ProjectState {
     id: project.id,
     name: project.name,
     snapshot: parseSnapshot(project.snapshotJson),
-    history: getGenerationHistory(),
+    history: getGenerationHistory(ownerEmail),
     updatedAt: project.updatedAt
   };
 }
 
-export function getGalleryImages(): GalleryResponse {
+export function getGalleryImages(ownerEmail = DEFAULT_PROJECT_ID): GalleryResponse {
   const rows = db
     .select({
       output: generationOutputs,
@@ -105,7 +110,7 @@ export function getGalleryImages(): GalleryResponse {
     .from(generationOutputs)
     .innerJoin(generationRecords, eq(generationOutputs.generationId, generationRecords.id))
     .innerJoin(assets, eq(generationOutputs.assetId, assets.id))
-    .where(eq(generationOutputs.status, "succeeded"))
+    .where(and(eq(generationOutputs.status, "succeeded"), eq(generationRecords.ownerEmail, ownerEmail), eq(assets.ownerEmail, ownerEmail)))
     .orderBy(desc(generationOutputs.createdAt))
     .all();
 
@@ -129,14 +134,24 @@ export function getGalleryImages(): GalleryResponse {
   };
 }
 
-export function deleteGalleryOutput(outputId: string): boolean {
+export function deleteGalleryOutput(outputId: string, ownerEmail = DEFAULT_PROJECT_ID): boolean {
+  const row = db
+    .select({ id: generationOutputs.id })
+    .from(generationOutputs)
+    .innerJoin(generationRecords, eq(generationOutputs.generationId, generationRecords.id))
+    .where(and(eq(generationOutputs.id, outputId), eq(generationRecords.ownerEmail, ownerEmail)))
+    .get();
+  if (!row) {
+    return false;
+  }
+
   const result = db.delete(generationOutputs).where(eq(generationOutputs.id, outputId)).run();
   return result.changes > 0;
 }
 
-function getDefaultProjectRow(): (typeof projects.$inferSelect) | undefined {
+function getProjectRow(ownerEmail: string): (typeof projects.$inferSelect) | undefined {
   try {
-    return db.select().from(projects).where(eq(projects.id, DEFAULT_PROJECT_ID)).get();
+    return db.select().from(projects).where(eq(projects.id, ownerEmail)).get();
   } catch (error) {
     warnOnce(
       "project-read-fallback",
@@ -146,18 +161,18 @@ function getDefaultProjectRow(): (typeof projects.$inferSelect) | undefined {
   }
 }
 
-function defaultProjectRowExists(): boolean {
+function projectRowExists(ownerEmail: string): boolean {
   try {
-    const row = db.select({ id: projects.id }).from(projects).where(eq(projects.id, DEFAULT_PROJECT_ID)).get();
+    const row = db.select({ id: projects.id }).from(projects).where(eq(projects.id, ownerEmail)).get();
     return Boolean(row);
   } catch {
     return true;
   }
 }
 
-function getGenerationHistory(): ApiGenerationRecord[] {
+function getGenerationHistory(ownerEmail: string): ApiGenerationRecord[] {
   try {
-    return readGenerationHistory();
+    return readGenerationHistory(ownerEmail);
   } catch (error) {
     warnOnce(
       "history-read-fallback",
@@ -186,8 +201,8 @@ function formatErrorSummary(error: unknown): string {
   return String(error);
 }
 
-function readGenerationHistory(): ApiGenerationRecord[] {
-  const records = db.select().from(generationRecords).orderBy(desc(generationRecords.createdAt)).limit(20).all();
+function readGenerationHistory(ownerEmail: string): ApiGenerationRecord[] {
+  const records = db.select().from(generationRecords).where(eq(generationRecords.ownerEmail, ownerEmail)).orderBy(desc(generationRecords.createdAt)).limit(20).all();
   if (records.length === 0) {
     return [];
   }
