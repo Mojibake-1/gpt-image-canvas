@@ -367,6 +367,7 @@ interface GenerationPlaceholderPlacement {
   height: number;
   targetWidth: number;
   targetHeight: number;
+  isAutoSize?: boolean;
 }
 
 interface AgentOutputPlacementLayout {
@@ -479,6 +480,68 @@ function normalizeDimension(value: string): number {
 
 function isAutoSizePresetId(sizePresetId: string): boolean {
   return sizePresetId === AUTO_SIZE_PRESET_ID;
+}
+
+function sizeFromPresetId(presetId: string): ImageSize | undefined {
+  const preset = SIZE_PRESETS.find((item) => item.id === presetId);
+  return preset ? { width: preset.width, height: preset.height } : undefined;
+}
+
+function inferAutoGenerationSize(promptValue: string): ImageSize | undefined {
+  const promptText = promptValue.trim();
+  const ratioMatch = /(?:^|[^\d])(\d{1,2})\s*[:：]\s*(\d{1,2})(?:[^\d]|$)/u.exec(promptText);
+  if (ratioMatch?.[1] && ratioMatch[2]) {
+    const widthRatio = Number.parseInt(ratioMatch[1], 10);
+    const heightRatio = Number.parseInt(ratioMatch[2], 10);
+    if (widthRatio > 0 && heightRatio > 0) {
+      return closestAutoSizePresetForRatio(widthRatio / heightRatio);
+    }
+  }
+
+  if (/(?:方形|正方形|square)/iu.test(promptText)) {
+    return sizeFromPresetId("square-1k");
+  }
+  if (/(?:竖屏|竖版|纵向|portrait|vertical|story)/iu.test(promptText)) {
+    return sizeFromPresetId("story-9-16");
+  }
+  if (/(?:横屏|横版|横向|宽屏|landscape|wide|widescreen)/iu.test(promptText)) {
+    return sizeFromPresetId("video-16-9");
+  }
+
+  return undefined;
+}
+
+function closestAutoSizePresetForRatio(targetRatio: number): ImageSize | undefined {
+  const candidateIds = ["square-1k", "poster-portrait", "poster-landscape", "story-9-16", "video-16-9", "wide-2k"];
+  const candidates = candidateIds.flatMap((presetId) => {
+    const preset = SIZE_PRESETS.find((item) => item.id === presetId);
+    return preset ? [preset] : [];
+  });
+  const target = Math.max(targetRatio, 1 / targetRatio);
+  const isTargetPortrait = targetRatio < 1;
+
+  const best = candidates.reduce<SizePreset | undefined>((currentBest, candidate) => {
+    const candidateIsPortrait = candidate.height > candidate.width;
+    if (candidateIsPortrait !== isTargetPortrait && candidate.width !== candidate.height) {
+      return currentBest;
+    }
+
+    const candidateRatio = Math.max(candidate.width, candidate.height) / Math.min(candidate.width, candidate.height);
+    const candidateScore = Math.abs(Math.log(candidateRatio / target)) + (Math.max(candidate.width, candidate.height) >= 2048 ? 0.03 : 0);
+    if (!currentBest) {
+      return candidate;
+    }
+
+    const bestRatio = Math.max(currentBest.width, currentBest.height) / Math.min(currentBest.width, currentBest.height);
+    const bestScore = Math.abs(Math.log(bestRatio / target)) + (Math.max(currentBest.width, currentBest.height) >= 2048 ? 0.03 : 0);
+    return candidateScore < bestScore ? candidate : currentBest;
+  }, undefined);
+
+  return best ? { width: best.width, height: best.height } : undefined;
+}
+
+function generationDisplaySize(input: Pick<GenerationSubmitInput, "prompt" | "size" | "sizePresetId">): ImageSize {
+  return isAutoSizePresetId(input.sizePresetId) ? (inferAutoGenerationSize(input.prompt) ?? input.size) : input.size;
 }
 
 function sizeValidationMessage(width: number, height: number, t: Translate, locale: Locale, sizePresetId?: string): string {
@@ -712,6 +775,7 @@ function createTemporaryGenerationRecord(input: {
 }): GenerationRecord {
   const promptValue = input.submitInput.prompt.trim();
   const referenceAssetIds = input.referenceAssetIds ?? (input.referenceAssetId ? [input.referenceAssetId] : undefined);
+  const size = generationDisplaySize(input.submitInput);
 
   return {
     id: `local-generation-${input.requestId}`,
@@ -719,7 +783,7 @@ function createTemporaryGenerationRecord(input: {
     prompt: promptValue,
     effectivePrompt: promptValue,
     presetId: input.submitInput.presetId,
-    size: input.submitInput.size,
+    size,
     quality: input.submitInput.quality,
     outputFormat: input.submitInput.outputFormat,
     count: input.submitInput.count,
@@ -793,7 +857,12 @@ function displaySize(size: ImageSize): { width: number; height: number } {
   };
 }
 
-function createCenteredPlacements(editor: Editor, countValue: GenerationCount, size: ImageSize): GenerationPlaceholderPlacement[] {
+function createCenteredPlacements(
+  editor: Editor,
+  countValue: GenerationCount,
+  size: ImageSize,
+  options: { isAutoSize?: boolean } = {}
+): GenerationPlaceholderPlacement[] {
   const placeholderSize = displaySize(size);
   const columns = countValue >= 8 ? 4 : countValue === 1 ? 1 : 2;
   const rows = Math.ceil(countValue / columns);
@@ -817,7 +886,8 @@ function createCenteredPlacements(editor: Editor, countValue: GenerationCount, s
       width: placeholderSize.width,
       height: placeholderSize.height,
       targetWidth: size.width,
-      targetHeight: size.height
+      targetHeight: size.height,
+      isAutoSize: options.isAutoSize
     };
   });
 }
@@ -865,7 +935,9 @@ function createGenerationPlaceholders(
   requestId: number,
   options: { selectPlaceholders?: boolean } = {}
 ): ActiveGenerationPlaceholders {
-  return createGenerationPlaceholdersFromPlacements(editor, createCenteredPlacements(editor, input.count, input.size), requestId, options);
+  const isAutoSize = isAutoSizePresetId(input.sizePresetId);
+  const size = generationDisplaySize(input);
+  return createGenerationPlaceholdersFromPlacements(editor, createCenteredPlacements(editor, input.count, size, { isAutoSize }), requestId, options);
 }
 
 function deleteAgentPlanNodes(editor: Editor): number {
@@ -1010,6 +1082,23 @@ function createImageShape(
   };
 }
 
+function resolveGeneratedAssetPlacement(placement: GenerationPlaceholderPlacement, asset: GeneratedAsset): GenerationPlaceholderPlacement {
+  if (!placement.isAutoSize) {
+    return placement;
+  }
+
+  const size = displaySize({ width: asset.width, height: asset.height });
+  return {
+    ...placement,
+    x: placement.x + placement.width / 2 - size.width / 2,
+    y: placement.y + placement.height / 2 - size.height / 2,
+    width: size.width,
+    height: size.height,
+    targetWidth: asset.width,
+    targetHeight: asset.height
+  };
+}
+
 function replaceGenerationPlaceholders(editor: Editor, placeholderSet: ActiveGenerationPlaceholders, record: GenerationRecord, t: Translate): number {
   const assets: TLAsset[] = [];
   const imageShapes: Array<Partial<TLImageShape> & { id: TLShapeId; type: "image" }> = [];
@@ -1021,7 +1110,7 @@ function replaceGenerationPlaceholders(editor: Editor, placeholderSet: ActiveGen
     if (output?.status === "succeeded" && output.asset) {
       const resolvedPlacement = livePlacement(editor, placement);
       assets.push(createImageAsset(output.asset));
-      imageShapes.push(createImageShape(output.asset, resolvedPlacement, record.prompt));
+      imageShapes.push(createImageShape(output.asset, resolveGeneratedAssetPlacement(resolvedPlacement, output.asset), record.prompt));
       if (isGenerationPlaceholderShape(editor.getShape(placement.id))) {
         replacedPlaceholderIds.push(placement.id);
       }
