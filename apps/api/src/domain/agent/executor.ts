@@ -31,6 +31,7 @@ export type AgentPlanExecutionMode = "execute" | "retry_failed";
 
 export interface AgentPlanExecutionInput extends StoredAgentGenerationPlan {
   mode: AgentPlanExecutionMode;
+  ownerEmail: string;
   provider?: ImageProvider;
   requestId?: string;
   runId: string;
@@ -201,7 +202,7 @@ async function executeGenerationJob(input: AgentPlanExecutionInput & {
 
   try {
     throwIfAborted(input.signal);
-    const references = await resolveJobReferences(input.plan, input.job, input.selectedReferencesByKey);
+    const references = await resolveJobReferences(input.plan, input.job, input.selectedReferencesByKey, input.ownerEmail);
     throwIfAborted(input.signal);
 
     const request = createJobImageProviderInput(input.plan, input.job);
@@ -215,9 +216,10 @@ async function executeGenerationJob(input: AgentPlanExecutionInput & {
               referenceAssetId: references.referenceAssetIds[0]
             },
             input.provider,
+            input.ownerEmail,
             input.signal
           )
-        : await runTextToImageGeneration(request, input.provider, input.signal);
+        : await runTextToImageGeneration(request, input.provider, input.ownerEmail, input.signal);
     throwIfAborted(input.signal);
 
     input.job.outputs = response.record.outputs;
@@ -281,13 +283,14 @@ function createJobImageProviderInput(plan: GenerationPlan, job: GenerationJob): 
 async function resolveJobReferences(
   plan: GenerationPlan,
   job: GenerationJob,
-  selectedReferencesByKey: Map<string, AgentSelectedCanvasReference>
+  selectedReferencesByKey: Map<string, AgentSelectedCanvasReference>,
+  ownerEmail: string
 ): Promise<ResolvedJobReferences> {
   const referenceImages: ReferenceImageInput[] = [];
   const referenceAssetIds: string[] = [];
 
   for (const reference of job.references.slice(0, 3)) {
-    const resolved = await resolveGenerationReference(plan, reference, selectedReferencesByKey);
+    const resolved = await resolveGenerationReference(plan, reference, selectedReferencesByKey, ownerEmail);
     referenceImages.push(resolved.referenceImage);
     if (resolved.assetId) {
       referenceAssetIds.push(resolved.assetId);
@@ -303,7 +306,8 @@ async function resolveJobReferences(
 async function resolveGenerationReference(
   plan: GenerationPlan,
   reference: GenerationReference,
-  selectedReferencesByKey: Map<string, AgentSelectedCanvasReference>
+  selectedReferencesByKey: Map<string, AgentSelectedCanvasReference>,
+  ownerEmail: string
 ): Promise<{ referenceImage: ReferenceImageInput; assetId?: string }> {
   if (reference.kind === "selected_canvas_image") {
     const selected = selectedReferenceFor(reference, selectedReferencesByKey);
@@ -319,7 +323,7 @@ async function resolveGenerationReference(
 
     const assetId = selected?.assetId ?? reference.assetId;
     if (assetId) {
-      const stored = await storedAssetReference(assetId);
+      const stored = await storedAssetReference(assetId, ownerEmail);
       if (stored) {
         return stored;
       }
@@ -339,7 +343,7 @@ async function resolveGenerationReference(
     throw new Error(`Generated reference "${reference.jobId ?? "unknown"}" has no available output.`);
   }
 
-  const stored = await storedAssetReference(assetId);
+  const stored = await storedAssetReference(assetId, ownerEmail);
   if (!stored) {
     throw new Error(`Generated reference asset "${assetId}" is not available.`);
   }
@@ -347,9 +351,9 @@ async function resolveGenerationReference(
   return stored;
 }
 
-async function storedAssetReference(assetId: string): Promise<{ referenceImage: ReferenceImageInput; assetId: string } | undefined> {
+async function storedAssetReference(assetId: string, ownerEmail: string): Promise<{ referenceImage: ReferenceImageInput; assetId: string } | undefined> {
   for (const candidateAssetId of storedAssetIdCandidates(assetId)) {
-    const stored = await readStoredAsset(candidateAssetId);
+    const stored = await readStoredAsset(candidateAssetId, ownerEmail);
     if (!stored) {
       continue;
     }
