@@ -238,44 +238,72 @@ export function parseStorageConfigPayload(input: unknown): ParseResult<SaveStora
     };
   }
 
+  const provider = parseOptionalString(input.provider) ?? "cos";
+  if (provider !== "cos" && provider !== "r2") {
+    return {
+      ok: false,
+      error: errorResponse("invalid_storage_provider", "Only Tencent COS and Cloudflare R2 storage are supported.")
+    };
+  }
+
   const enabled = input.enabled === true;
   if (!enabled) {
     return {
       ok: true,
       value: {
         enabled: false,
-        provider: "cos"
+        provider
       }
     };
   }
 
-  const provider = parseOptionalString(input.provider) ?? "cos";
-  if (provider !== "cos") {
-    return {
-      ok: false,
-      error: errorResponse("invalid_storage_provider", "Only Tencent COS storage is supported.")
-    };
-  }
-
-  if (!isRecord(input.cos)) {
+  if (provider === "cos" && !isRecord(input.cos)) {
     return {
       ok: false,
       error: errorResponse("invalid_storage_config", "COS config must be a JSON object.")
     };
   }
 
+  if (provider === "r2" && !isRecord(input.r2)) {
+    return {
+      ok: false,
+      error: errorResponse("invalid_storage_config", "R2 config must be a JSON object.")
+    };
+  }
+
+  if (provider === "r2") {
+    const r2 = input.r2 as Record<string, unknown>;
+    return {
+      ok: true,
+      value: {
+        enabled: true,
+        provider: "r2",
+        r2: {
+          accessKeyId: stringValue(r2.accessKeyId) ?? "",
+          secretAccessKey: stringValue(r2.secretAccessKey),
+          preserveSecret: r2.preserveSecret === true,
+          accountId: stringValue(r2.accountId) ?? "",
+          endpoint: stringValue(r2.endpoint) ?? "",
+          bucket: stringValue(r2.bucket) ?? "",
+          keyPrefix: stringValue(r2.keyPrefix) ?? ""
+        }
+      }
+    };
+  }
+
+  const cos = input.cos as Record<string, unknown>;
   return {
     ok: true,
     value: {
       enabled: true,
       provider: "cos",
       cos: {
-        secretId: stringValue(input.cos.secretId) ?? "",
-        secretKey: stringValue(input.cos.secretKey),
-        preserveSecret: input.cos.preserveSecret === true,
-        bucket: stringValue(input.cos.bucket) ?? "",
-        region: stringValue(input.cos.region) ?? "",
-        keyPrefix: stringValue(input.cos.keyPrefix) ?? ""
+        secretId: stringValue(cos.secretId) ?? "",
+        secretKey: stringValue(cos.secretKey),
+        preserveSecret: cos.preserveSecret === true,
+        bucket: stringValue(cos.bucket) ?? "",
+        region: stringValue(cos.region) ?? "",
+        keyPrefix: stringValue(cos.keyPrefix) ?? ""
       }
     }
   };
