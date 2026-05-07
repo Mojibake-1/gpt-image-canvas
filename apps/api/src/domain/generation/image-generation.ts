@@ -445,6 +445,7 @@ function saveGenerationRecord(input: PersistedGenerationInput, outputs: BatchOut
   const failureCount = outputs.length - successCount;
   const status = resolveGenerationStatus(successCount, failureCount);
   const error = failureCount > 0 ? `${failureCount} 张图像生成失败。` : undefined;
+  const recordSize = firstOutputSize(outputs) ?? input.size;
 
   const referenceAssetIds = input.referenceAssetIds ?? (input.referenceAssetId ? [input.referenceAssetId] : []);
   const primaryReferenceAssetId = referenceAssetIds[0] ?? input.referenceAssetId;
@@ -457,8 +458,8 @@ function saveGenerationRecord(input: PersistedGenerationInput, outputs: BatchOut
       prompt: input.originalPrompt,
       effectivePrompt: input.prompt,
       presetId: input.presetId,
-      width: input.size.width,
-      height: input.size.height,
+      width: recordSize.width,
+      height: recordSize.height,
       quality: input.quality,
       outputFormat: input.outputFormat,
       count: input.count,
@@ -523,7 +524,7 @@ function saveGenerationRecord(input: PersistedGenerationInput, outputs: BatchOut
     prompt: input.originalPrompt,
     effectivePrompt: input.prompt,
     presetId: input.presetId,
-    size: input.size,
+    size: recordSize,
     quality: input.quality,
     outputFormat: input.outputFormat,
     count: input.count,
@@ -534,6 +535,11 @@ function saveGenerationRecord(input: PersistedGenerationInput, outputs: BatchOut
     createdAt,
     outputs: outputs.map(toGenerationOutput)
   };
+}
+
+function firstOutputSize(outputs: BatchOutputResult[]): ImageSize | undefined {
+  const asset = outputs.find((output) => output.asset)?.asset;
+  return asset ? { width: asset.width, height: asset.height } : undefined;
 }
 
 function resolveGenerationStatus(successCount: number, failureCount: number): GenerationStatus {

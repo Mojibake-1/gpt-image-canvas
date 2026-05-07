@@ -1,4 +1,6 @@
 import {
+  AUTO_SIZE_FALLBACK,
+  AUTO_SIZE_PRESET_ID,
   GENERATION_COUNTS,
   IMAGE_QUALITIES,
   MAX_REFERENCE_IMAGES,
@@ -7,6 +9,7 @@ import {
   SIZE_PRESETS,
   STYLE_PRESETS,
   composePrompt,
+  validateImageSize,
   validateSceneImageSize,
   type GenerationCount,
   type ImageQuality,
@@ -474,12 +477,19 @@ function parseBaseImagePayload(input: unknown): ParseResult<ImageProviderInput> 
     return stylePreset;
   }
 
-  const size = parseSize(input.size);
+  const sizePresetId = parseOptionalString(input.sizePresetId) ?? parseOptionalString(input.scenePresetId) ?? parseSizePresetFromPresetId(input.presetId);
+  const size =
+    sizePresetId === AUTO_SIZE_PRESET_ID
+      ? {
+          ok: true as const,
+          value: parseAutoFallbackSize(input.size)
+        }
+      : parseSize(input.size);
+
   if (!size.ok) {
     return size;
   }
 
-  const sizePresetId = parseOptionalString(input.sizePresetId) ?? parseOptionalString(input.scenePresetId) ?? parseSizePresetFromPresetId(input.presetId);
   const resolvedSize = validateSceneImageSize({
     size: size.value,
     sizePresetId
@@ -553,6 +563,15 @@ function parseSize(value: unknown): ParseResult<ImageSize> {
       height: parseDimension(value.height)
     }
   };
+}
+
+function parseAutoFallbackSize(value: unknown): ImageSize {
+  const parsedSize = parseSize(value);
+  if (parsedSize.ok && validateImageSize(parsedSize.value).ok) {
+    return parsedSize.value;
+  }
+
+  return AUTO_SIZE_FALLBACK;
 }
 
 function parseQuality(value: unknown): ParseResult<ImageQuality> {
@@ -672,6 +691,9 @@ function parseStylePresetFromPresetId(value: unknown): string | undefined {
 
 function parseSizePresetFromPresetId(value: unknown): string | undefined {
   const presetId = parseOptionalString(value);
+  if (presetId === AUTO_SIZE_PRESET_ID) {
+    return presetId;
+  }
   return presetId && SIZE_PRESETS.some((preset) => preset.id === presetId) ? presetId : undefined;
 }
 

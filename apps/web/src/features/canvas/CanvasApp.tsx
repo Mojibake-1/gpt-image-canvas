@@ -65,6 +65,7 @@ import {
 import { InternalLoginScreen, type InternalSessionResponse } from "./InternalLoginScreen";
 import { ProviderConfigDialog } from "../provider-config/ProviderConfigDialog";
 import {
+  AUTO_SIZE_PRESET_ID,
   CUSTOM_SIZE_PRESET_ID,
   GENERATION_COUNTS,
   IMAGE_SIZE_MULTIPLE,
@@ -468,11 +469,23 @@ function sizePresetOptionLabel(preset: SizePreset, t: Translate): string {
   return `${sizePresetLabel(preset, t)} - ${preset.width} x ${preset.height}`;
 }
 
+function autoSizeOptionLabel(t: Translate): string {
+  return `${t("autoSize")} - ${t("autoSizeModel")}`;
+}
+
 function normalizeDimension(value: string): number {
   return Number.parseInt(value, 10);
 }
 
-function sizeValidationMessage(width: number, height: number, t: Translate, locale: Locale): string {
+function isAutoSizePresetId(sizePresetId: string): boolean {
+  return sizePresetId === AUTO_SIZE_PRESET_ID;
+}
+
+function sizeValidationMessage(width: number, height: number, t: Translate, locale: Locale, sizePresetId?: string): string {
+  if (isAutoSizePresetId(sizePresetId ?? "")) {
+    return "";
+  }
+
   const result = validateImageSize({ width, height });
 
   if (result.ok) {
@@ -482,8 +495,15 @@ function sizeValidationMessage(width: number, height: number, t: Translate, loca
   return imageSizeValidationMessage(result.reason, t, locale);
 }
 
-function generationValidationMessage(promptValue: string, widthValue: number, heightValue: number, t: Translate, locale: Locale): string {
-  return promptValue.trim() ? sizeValidationMessage(widthValue, heightValue, t, locale) : t("promptRequired");
+function generationValidationMessage(
+  promptValue: string,
+  widthValue: number,
+  heightValue: number,
+  t: Translate,
+  locale: Locale,
+  sizePresetId?: string
+): string {
+  return promptValue.trim() ? sizeValidationMessage(widthValue, heightValue, t, locale, sizePresetId) : t("promptRequired");
 }
 
 function imageSizeValidationMessage(reason: ImageSizeValidationReason | undefined, t: Translate, locale: Locale): string {
@@ -2599,7 +2619,8 @@ export function App() {
 
   const trimmedPrompt = prompt.trim();
   const promptValidationMessage = prompt.trim() ? "" : t("promptRequired");
-  const dimensionValidationMessage = sizeValidationMessage(width, height, t, locale);
+  const isAutoSizeSelected = isAutoSizePresetId(sizePresetId);
+  const dimensionValidationMessage = sizeValidationMessage(width, height, t, locale, sizePresetId);
   const isReferenceMode = generationMode === "reference";
   const isReferenceReady = isReferenceMode && referenceSelection.status === "ready";
   const referenceValidationMessage = isReferenceMode && !isReferenceReady ? referenceSelection.hint : "";
@@ -3361,6 +3382,11 @@ export function App() {
   }, [t]);
 
   function selectScenePreset(nextPresetId: string): void {
+    if (nextPresetId === AUTO_SIZE_PRESET_ID) {
+      setSizePresetId(AUTO_SIZE_PRESET_ID);
+      return;
+    }
+
     if (nextPresetId === CUSTOM_SIZE_PRESET_ID) {
       setSizePresetId(CUSTOM_SIZE_PRESET_ID);
       return;
@@ -3403,7 +3429,7 @@ export function App() {
     setGenerationMessage("");
     setGenerationWarning("");
 
-    const inputValidationMessage = generationValidationMessage(input.prompt, input.size.width, input.size.height, t, locale);
+    const inputValidationMessage = generationValidationMessage(input.prompt, input.size.width, input.size.height, t, locale, input.sizePresetId);
     if (inputValidationMessage) {
       setGenerationWarning(inputValidationMessage);
       return;
@@ -5310,6 +5336,15 @@ export function App() {
           <div>
             <span className="control-label">{t("generationSizeLabel")}</span>
             <div className="quick-size-grid" data-testid="quick-size-presets">
+              <button
+                aria-pressed={sizePresetId === AUTO_SIZE_PRESET_ID}
+                className={sizePresetId === AUTO_SIZE_PRESET_ID ? "quick-size-button is-active" : "quick-size-button"}
+                type="button"
+                onClick={() => selectScenePreset(AUTO_SIZE_PRESET_ID)}
+              >
+                <span>{t("autoSize")}</span>
+                <small>{t("autoSizeModel")}</small>
+              </button>
               {quickSizePresets.map((preset) => (
                 <button
                   aria-pressed={sizePresetId === preset.id}
@@ -5344,6 +5379,7 @@ export function App() {
                 data-testid="scene-preset"
                 onChange={(event) => selectScenePreset(event.target.value)}
               >
+                <option value={AUTO_SIZE_PRESET_ID}>{autoSizeOptionLabel(t)}</option>
                 {SIZE_PRESETS.map((preset) => (
                   <option key={preset.id} value={preset.id}>
                     {sizePresetOptionLabel(preset, t)}
@@ -5352,6 +5388,7 @@ export function App() {
                 <option value={CUSTOM_SIZE_PRESET_ID}>{t("customSizeOption")}</option>
               </select>
             </label>
+            {isAutoSizeSelected ? <p className="mt-2 text-xs leading-5 text-neutral-500">{t("autoSizeHint")}</p> : null}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -5367,6 +5404,7 @@ export function App() {
                 type="number"
                 value={Number.isNaN(width) ? "" : width}
                 data-testid="custom-width"
+                disabled={isAutoSizeSelected}
                 onChange={(event) => updateWidth(event.target.value)}
               />
             </label>
@@ -5382,6 +5420,7 @@ export function App() {
                 type="number"
                 value={Number.isNaN(height) ? "" : height}
                 data-testid="custom-height"
+                disabled={isAutoSizeSelected}
                 onChange={(event) => updateHeight(event.target.value)}
               />
             </label>

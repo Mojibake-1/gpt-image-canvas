@@ -1,4 +1,4 @@
-import { CUSTOM_SIZE_PRESET_ID, SIZE_PRESETS, type ImageSize, type ImageSizePresetId } from "./image.js";
+import { AUTO_SIZE_PRESET_ID, CUSTOM_SIZE_PRESET_ID, SIZE_PRESETS, type ImageSize, type ImageSizePresetId } from "./image.js";
 
 export type ValidationResult =
   | {
@@ -26,7 +26,7 @@ export type ImageSizeValidationResult =
       ok: true;
       size: ImageSize;
       apiValue: string;
-      source: "preset" | "custom";
+      source: "auto" | "preset" | "custom";
       presetId?: ImageSizePresetId;
     }
   | {
@@ -87,6 +87,17 @@ export function validateSceneImageSize(input: {
   sizePresetId?: string | null;
 }): ImageSizeValidationResult {
   const requestedPresetId = input.sizePresetId?.trim();
+
+  if (requestedPresetId === AUTO_SIZE_PRESET_ID) {
+    return {
+      ok: true,
+      size: input.size,
+      apiValue: AUTO_SIZE_PRESET_ID,
+      source: "auto",
+      presetId: AUTO_SIZE_PRESET_ID
+    };
+  }
+
   const requestedPreset =
     requestedPresetId && requestedPresetId !== CUSTOM_SIZE_PRESET_ID
       ? SIZE_PRESETS.find((preset) => preset.id === requestedPresetId)

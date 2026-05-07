@@ -17,6 +17,8 @@ export interface SizePreset {
   description: string;
 }
 
+export const AUTO_SIZE_PRESET_ID = "auto" as const;
+
 export const SIZE_PRESETS: SizePreset[] = [
   { id: "square-1k", label: "Square 1K", width: 1024, height: 1024, description: "Avatar and social image" },
   { id: "poster-portrait", label: "Portrait poster", width: 1024, height: 1536, description: "Poster, cover, and mobile vertical image" },
@@ -75,6 +77,11 @@ export interface ImageSize {
   height: number;
 }
 
+export const AUTO_SIZE_FALLBACK: ImageSize = {
+  width: 1024,
+  height: 1024
+};
+
 export type ResolutionTier = "1K" | "2K" | "4K";
 
 export interface AssetMetadataResponse extends ImageSize {
@@ -93,7 +100,7 @@ export function resolutionTierForSize(size: ImageSize): ResolutionTier {
 }
 
 export const CUSTOM_SIZE_PRESET_ID = "custom" as const;
-export type ImageSizePresetId = (typeof SIZE_PRESETS)[number]["id"] | typeof CUSTOM_SIZE_PRESET_ID;
+export type ImageSizePresetId = typeof AUTO_SIZE_PRESET_ID | (typeof SIZE_PRESETS)[number]["id"] | typeof CUSTOM_SIZE_PRESET_ID;
 
 export interface AppConfig {
   model: ImageModel;
