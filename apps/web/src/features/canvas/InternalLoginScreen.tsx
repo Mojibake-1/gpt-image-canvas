@@ -24,8 +24,8 @@ export function InternalLoginScreen({
     <main className="app-root internal-login-screen">
       <section className="internal-login-card">
         <div>
-          <p className="internal-login-eyebrow">Muxing Image Canvas</p>
-          <h1 className="internal-login-title">???? AI ????</h1>
+          <p className="internal-login-eyebrow">星沐图像画布</p>
+          <h1 className="internal-login-title">AI 创作画布</h1>
         </div>
 
         <form
@@ -36,7 +36,7 @@ export function InternalLoginScreen({
           }}
         >
           <label className="internal-login-field">
-            <span>????</span>
+            <span>邮箱</span>
             <input
               autoComplete="email"
               autoFocus
@@ -53,7 +53,7 @@ export function InternalLoginScreen({
 
           <button className="internal-login-submit" disabled={isLoading || isSubmitting} type="submit">
             {isLoading || isSubmitting ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <ShieldCheck className="size-4" aria-hidden="true" />}
-            ?? Canvas
+            进入画布
           </button>
         </form>
       </section>
