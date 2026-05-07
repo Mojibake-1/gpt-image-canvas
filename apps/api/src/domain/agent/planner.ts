@@ -400,12 +400,154 @@ export function createDeepAgentsPlanner(config: UsableAgentLlmConfig, plannerOpt
     return createDirectChatPlanner(model);
   }
 
+  if (usesCustomAgentBaseUrl(config)) {
+    return createCompatibleChatCompletionsPlanner(config);
+  }
+
   return createDeepAgent({
     model,
     skills: ["/skills/"],
     systemPrompt: createPlanningSystemPrompt(),
     tools: []
   }) as unknown as GenerationPlanAgentRunner;
+}
+
+function usesCustomAgentBaseUrl(config: Pick<UsableAgentLlmConfig, "baseUrl">): boolean {
+  return Boolean(config.baseUrl?.trim());
+}
+
+export function createCompatibleChatCompletionsPlanner(config: UsableAgentLlmConfig): GenerationPlanAgentRunner {
+  return {
+    async invoke(input, options) {
+      const abort = createPlannerAbortSignal(options?.signal, config.timeoutMs);
+      let response: Response;
+      try {
+        response = await fetch(chatCompletionsUrlFromBaseUrl(config.baseUrl), {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${config.apiKey}`,
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            model: config.model,
+            messages: [
+              {
+                role: "system",
+                content: createDirectPlanningSystemPrompt()
+              },
+              ...input.messages
+            ]
+          }),
+          signal: abort.signal
+        });
+      } finally {
+        abort.cleanup();
+      }
+
+      const text = await response.text();
+      if (!response.ok) {
+        throw new Error(`Agent planner request failed: ${response.status} ${truncate(text, 240)}`);
+      }
+
+      const parsed = parseJsonObject(text);
+      const content = extractChatCompletionContent(parsed);
+      if (!content) {
+        throw new Error("Agent planner request failed: chat completion returned no content.");
+      }
+
+      return {
+        messages: [
+          {
+            content
+          }
+        ]
+      };
+    }
+  };
+}
+
+function chatCompletionsUrlFromBaseUrl(value: string | undefined): string {
+  const baseUrl = (value?.trim() || "https://api.openai.com/v1").replace(/\/+$/u, "");
+
+  if (baseUrl.endsWith("/v1/chat/completions")) {
+    return baseUrl;
+  }
+
+  if (baseUrl.endsWith("/chat/completions")) {
+    return `${baseUrl.slice(0, -"/chat/completions".length)}/v1/chat/completions`;
+  }
+
+  if (baseUrl.endsWith("/v1")) {
+    return `${baseUrl}/chat/completions`;
+  }
+
+  return `${baseUrl}/v1/chat/completions`;
+}
+
+function createPlannerAbortSignal(
+  parent: AbortSignal | undefined,
+  timeoutMs: number
+): {
+  signal: AbortSignal;
+  cleanup: () => void;
+} {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error("Agent planner request timed out.")), timeoutMs);
+  const abortFromParent = () => controller.abort(parent?.reason);
+
+  if (parent?.aborted) {
+    abortFromParent();
+  } else {
+    parent?.addEventListener("abort", abortFromParent, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeout);
+      parent?.removeEventListener("abort", abortFromParent);
+    }
+  };
+}
+
+function parseJsonObject(text: string): Record<string, unknown> {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function extractChatCompletionContent(response: Record<string, unknown>): string | undefined {
+  const choices = Array.isArray(response.choices) ? response.choices : [];
+  const firstChoice = choices.find(isRecord);
+  const message = isRecord(firstChoice?.message) ? firstChoice.message : undefined;
+  const content = message?.content;
+
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (!Array.isArray(content)) {
+    return undefined;
+  }
+
+  const parts = content
+    .map((part) => {
+      if (typeof part === "string") {
+        return part;
+      }
+
+      if (isRecord(part) && typeof part.text === "string") {
+        return part.text;
+      }
+
+      return "";
+    })
+    .filter(Boolean);
+
+  return parts.length > 0 ? parts.join("") : undefined;
 }
 
 function createAgentChatModel(
