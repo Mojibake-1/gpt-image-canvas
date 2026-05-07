@@ -21,7 +21,7 @@ export function registerInternalAuthRoutes(app: Hono): void {
 
     const email = parseInternalLoginEmail(payload.value);
     if (!email) {
-      return c.json(errorResponse("forbidden_email", "??? @muxing.cfd ?????"), 403);
+      return c.json(errorResponse("forbidden_email", "请使用 @muxing.cfd 邮箱登录。"), 403);
     }
 
     ensureProjectForOwner(email);
@@ -50,7 +50,7 @@ export function requireInternalUserEmail(c: Context): string {
 
 function requireInternalSession(c: Context, next: Next): Response | Promise<Response | void> {
   if (!getInternalUserEmail(c)) {
-    return c.json(errorResponse("unauthorized", "???? @muxing.cfd ?????"), 401);
+    return c.json(errorResponse("unauthorized", "请先使用 @muxing.cfd 邮箱登录。"), 401);
   }
 
   return next();
