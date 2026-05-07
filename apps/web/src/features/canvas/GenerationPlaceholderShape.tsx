@@ -14,6 +14,7 @@ interface GenerationPlaceholderProps {
   error: string;
   requestId: string;
   outputIndex: number;
+  isAutoSize?: boolean;
 }
 
 declare module "@tldraw/tlschema" {
@@ -47,9 +48,11 @@ function GenerationPlaceholderContent({ shape }: { shape: GenerationPlaceholderS
           <div className="generation-placeholder-shape__spinner" aria-hidden="true" />
         )}
         <div className="generation-placeholder-shape__title">{isFailed ? t("generationCanvasFailed") : t("generationCanvasLoading")}</div>
-        <div className="generation-placeholder-shape__size">
-          {shape.props.targetWidth} x {shape.props.targetHeight}px
-        </div>
+        {shape.props.isAutoSize ? null : (
+          <div className="generation-placeholder-shape__size">
+            {shape.props.targetWidth} x {shape.props.targetHeight}px
+          </div>
+        )}
         <div className="generation-placeholder-shape__copy">
           {isFailed ? conciseError(shape.props.error, t("generationErrorDefault")) : "gpt-image-canvas"}
         </div>
@@ -68,7 +71,8 @@ export class GenerationPlaceholderShapeUtil extends BaseBoxShapeUtil<GenerationP
     status: T.literalEnum("loading", "failed"),
     error: T.string,
     requestId: T.string,
-    outputIndex: T.number
+    outputIndex: T.number,
+    isAutoSize: T.optional(T.boolean)
   };
 
   override canBind(): boolean {
@@ -92,7 +96,8 @@ export class GenerationPlaceholderShapeUtil extends BaseBoxShapeUtil<GenerationP
       status: "loading",
       error: "",
       requestId: "",
-      outputIndex: 0
+      outputIndex: 0,
+      isAutoSize: false
     };
   }
 

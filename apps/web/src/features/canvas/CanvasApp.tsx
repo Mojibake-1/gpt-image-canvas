@@ -65,6 +65,7 @@ import {
 import { InternalLoginScreen, type InternalSessionResponse } from "./InternalLoginScreen";
 import { ProviderConfigDialog } from "../provider-config/ProviderConfigDialog";
 import {
+  AUTO_SIZE_FALLBACK,
   AUTO_SIZE_PRESET_ID,
   CUSTOM_SIZE_PRESET_ID,
   GENERATION_COUNTS,
@@ -482,66 +483,8 @@ function isAutoSizePresetId(sizePresetId: string): boolean {
   return sizePresetId === AUTO_SIZE_PRESET_ID;
 }
 
-function sizeFromPresetId(presetId: string): ImageSize | undefined {
-  const preset = SIZE_PRESETS.find((item) => item.id === presetId);
-  return preset ? { width: preset.width, height: preset.height } : undefined;
-}
-
-function inferAutoGenerationSize(promptValue: string): ImageSize | undefined {
-  const promptText = promptValue.trim();
-  const ratioMatch = /(?:^|[^\d])(\d{1,2})\s*[:：]\s*(\d{1,2})(?:[^\d]|$)/u.exec(promptText);
-  if (ratioMatch?.[1] && ratioMatch[2]) {
-    const widthRatio = Number.parseInt(ratioMatch[1], 10);
-    const heightRatio = Number.parseInt(ratioMatch[2], 10);
-    if (widthRatio > 0 && heightRatio > 0) {
-      return closestAutoSizePresetForRatio(widthRatio / heightRatio);
-    }
-  }
-
-  if (/(?:方形|正方形|square)/iu.test(promptText)) {
-    return sizeFromPresetId("square-1k");
-  }
-  if (/(?:竖屏|竖版|纵向|portrait|vertical|story)/iu.test(promptText)) {
-    return sizeFromPresetId("story-9-16");
-  }
-  if (/(?:横屏|横版|横向|宽屏|landscape|wide|widescreen)/iu.test(promptText)) {
-    return sizeFromPresetId("video-16-9");
-  }
-
-  return undefined;
-}
-
-function closestAutoSizePresetForRatio(targetRatio: number): ImageSize | undefined {
-  const candidateIds = ["square-1k", "poster-portrait", "poster-landscape", "story-9-16", "video-16-9", "wide-2k"];
-  const candidates = candidateIds.flatMap((presetId) => {
-    const preset = SIZE_PRESETS.find((item) => item.id === presetId);
-    return preset ? [preset] : [];
-  });
-  const target = Math.max(targetRatio, 1 / targetRatio);
-  const isTargetPortrait = targetRatio < 1;
-
-  const best = candidates.reduce<SizePreset | undefined>((currentBest, candidate) => {
-    const candidateIsPortrait = candidate.height > candidate.width;
-    if (candidateIsPortrait !== isTargetPortrait && candidate.width !== candidate.height) {
-      return currentBest;
-    }
-
-    const candidateRatio = Math.max(candidate.width, candidate.height) / Math.min(candidate.width, candidate.height);
-    const candidateScore = Math.abs(Math.log(candidateRatio / target)) + (Math.max(candidate.width, candidate.height) >= 2048 ? 0.03 : 0);
-    if (!currentBest) {
-      return candidate;
-    }
-
-    const bestRatio = Math.max(currentBest.width, currentBest.height) / Math.min(currentBest.width, currentBest.height);
-    const bestScore = Math.abs(Math.log(bestRatio / target)) + (Math.max(currentBest.width, currentBest.height) >= 2048 ? 0.03 : 0);
-    return candidateScore < bestScore ? candidate : currentBest;
-  }, undefined);
-
-  return best ? { width: best.width, height: best.height } : undefined;
-}
-
-function generationDisplaySize(input: Pick<GenerationSubmitInput, "prompt" | "size" | "sizePresetId">): ImageSize {
-  return isAutoSizePresetId(input.sizePresetId) ? (inferAutoGenerationSize(input.prompt) ?? input.size) : input.size;
+function generationDisplaySize(input: Pick<GenerationSubmitInput, "size" | "sizePresetId">): ImageSize {
+  return isAutoSizePresetId(input.sizePresetId) ? AUTO_SIZE_FALLBACK : input.size;
 }
 
 function sizeValidationMessage(width: number, height: number, t: Translate, locale: Locale, sizePresetId?: string): string {
@@ -914,7 +857,8 @@ function createGenerationPlaceholdersFromPlacements(
         status: "loading",
         error: "",
         requestId: String(requestId),
-        outputIndex: index
+        outputIndex: index,
+        isAutoSize: placement.isAutoSize === true
       }
     }))
   );
@@ -5480,40 +5424,40 @@ export function App() {
             {isAutoSizeSelected ? <p className="mt-2 text-xs leading-5 text-neutral-500">{t("autoSizeHint")}</p> : null}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <label>
-              <span className="control-label">{t("generationWidthLabel")}</span>
-              <input
-                className="field-control"
-                id="custom-width"
-                min={MIN_IMAGE_DIMENSION}
-                max={MAX_IMAGE_DIMENSION}
-                name="width"
-                step={1}
-                type="number"
-                value={Number.isNaN(width) ? "" : width}
-                data-testid="custom-width"
-                disabled={isAutoSizeSelected}
-                onChange={(event) => updateWidth(event.target.value)}
-              />
-            </label>
-            <label>
-              <span className="control-label">{t("generationHeightLabel")}</span>
-              <input
-                className="field-control"
-                id="custom-height"
-                min={MIN_IMAGE_DIMENSION}
-                max={MAX_IMAGE_DIMENSION}
-                name="height"
-                step={1}
-                type="number"
-                value={Number.isNaN(height) ? "" : height}
-                data-testid="custom-height"
-                disabled={isAutoSizeSelected}
-                onChange={(event) => updateHeight(event.target.value)}
-              />
-            </label>
-          </div>
+          {!isAutoSizeSelected ? (
+            <div className="grid grid-cols-2 gap-3">
+              <label>
+                <span className="control-label">{t("generationWidthLabel")}</span>
+                <input
+                  className="field-control"
+                  id="custom-width"
+                  min={MIN_IMAGE_DIMENSION}
+                  max={MAX_IMAGE_DIMENSION}
+                  name="width"
+                  step={1}
+                  type="number"
+                  value={Number.isNaN(width) ? "" : width}
+                  data-testid="custom-width"
+                  onChange={(event) => updateWidth(event.target.value)}
+                />
+              </label>
+              <label>
+                <span className="control-label">{t("generationHeightLabel")}</span>
+                <input
+                  className="field-control"
+                  id="custom-height"
+                  min={MIN_IMAGE_DIMENSION}
+                  max={MAX_IMAGE_DIMENSION}
+                  name="height"
+                  step={1}
+                  type="number"
+                  value={Number.isNaN(height) ? "" : height}
+                  data-testid="custom-height"
+                  onChange={(event) => updateHeight(event.target.value)}
+                />
+              </label>
+            </div>
+          ) : null}
 
           <div>
             <span className="control-label">{t("generationCountLabel")}</span>
