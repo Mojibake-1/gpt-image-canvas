@@ -4,7 +4,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useState,
   type ReactNode
 } from "react";
 import type {
@@ -17,8 +16,10 @@ import type {
   StylePresetId
 } from "@gpt-image-canvas/shared";
 
-export const LOCALES = ["zh-CN", "en"] as const;
-export type Locale = (typeof LOCALES)[number];
+export type Locale = "zh-CN" | "en";
+export const LOCALES = ["zh-CN"] as const satisfies readonly Locale[];
+
+const ACTIVE_LOCALE: Locale = "zh-CN";
 
 const LOCALE_STORAGE_KEY = "gpt-image-canvas.locale";
 
@@ -186,7 +187,7 @@ const commonApiErrorMessages: Record<Locale, Record<string, string>> = {
 
 const zhMessages = {
   appCanvasAria: "gpt-image-canvas 创作画布",
-  appGalleryLoading: "正在载入 Gallery...",
+  appGalleryLoading: "正在载入图库...",
   appTagline: "AI 图像画布",
   agentCancelRun: "取消运行",
   agentConfigLoadFailed: "无法读取 Agent LLM 配置。",
@@ -365,38 +366,38 @@ const zhMessages = {
   errorFallback: ({ status }: { status: number }) => `生成请求失败，状态 ${status}。`,
   errorHttpSuffix: ({ status }: { status: number }) => `（HTTP ${status}）`,
   galleryActionCopyPrompt: ({ excerpt }: { excerpt: string }) => `复制提示词：${excerpt}`,
-  galleryActionDeleteImage: ({ excerpt }: { excerpt: string }) => `删除 Gallery 图片：${excerpt}`,
+  galleryActionDeleteImage: ({ excerpt }: { excerpt: string }) => `删除图库图片：${excerpt}`,
   galleryActionDownloadImage: ({ excerpt }: { excerpt: string }) => `下载图片：${excerpt}`,
   galleryActionOpenImage: ({ excerpt }: { excerpt: string }) => `打开图片详情：${excerpt}`,
   galleryActionOpenLatest: ({ excerpt }: { excerpt: string }) => `打开最新作品详情：${excerpt}`,
   galleryActionReusePrompt: ({ excerpt }: { excerpt: string }) => `复用提示词：${excerpt}`,
   galleryBadgeLatest: "最新",
   galleryConfirmDeleteBody: ({ excerpt }: { excerpt: string }) =>
-    `将从 Gallery 和生成历史移除“${excerpt}”。画布中的图片、文件和资产记录会保留。`,
+    `将从图库和生成历史移除“${excerpt}”。画布中的图片、文件和资产记录会保留。`,
   galleryConfirmRemove: "确认移除",
-  galleryConfirmDeleteTitle: "移除这张 Gallery 图片？",
+  galleryConfirmDeleteTitle: "移除这张图库图片？",
   galleryCopiedPrompt: "已复制提示词。",
   galleryDeleteFailed: "删除失败，请重试。",
-  galleryDeleted: "已从 Gallery 和生成历史移除。",
-  galleryDetailEyebrow: "Gallery Detail",
+  galleryDeleted: "已从图库和生成历史移除。",
+  galleryDetailEyebrow: "图库详情",
   galleryDetailTitle: "图片详情",
   galleryDownloadOriginal: "下载原图",
   galleryEmpty: "暂无作品",
   galleryEmptyHint: "生成成功的图片会出现在这里。",
   galleryHeaderMeta: ({ count }: { count: number }) => `${count} 张作品，按最新生成排序`,
-  galleryKicker: "Gallery",
-  galleryLoadFailed: "Gallery 加载失败。",
-  galleryLoading: "正在载入 Gallery...",
+  galleryKicker: "图库",
+  galleryLoadFailed: "图库 加载失败。",
+  galleryLoading: "正在载入图库...",
   galleryNoMatches: "没有匹配结果",
   galleryNoMatchesHint: "换一个提示词关键词再试试。",
   galleryOpenDownload: "已打开原图下载。",
   galleryPromptLabel: "提示词",
-  galleryRemovedTitle: "从 Gallery 移除",
+  galleryRemovedTitle: "从图库移除",
   galleryRequestFailed: ({ status }: { status: number }) => `请求失败，状态 ${status}。`,
   galleryReuseToCanvas: "复用到画布",
-  gallerySearchAria: "搜索 Gallery 提示词",
+  gallerySearchAria: "搜索图库提示词",
   gallerySearchPlaceholder: "搜索提示词、主题或风格",
-  galleryServiceInvalidData: "Gallery 服务返回了无法识别的数据。",
+  galleryServiceInvalidData: "图库服务返回了无法识别的数据。",
   galleryTitle: "作品图库",
   galleryToggleCollapse: "收起",
   galleryToggleExpand: "展开",
@@ -439,7 +440,7 @@ const zhMessages = {
   generationInsertedPartialBody: ({ inserted, failed }: { inserted: number; failed: number }) =>
     `已向画布插入 ${inserted} 张图像，${failed} 张失败。`,
   generationInvalidResponse: "生成服务返回了无法识别的结果。",
-  generationGalleryReused: "已从 Gallery 填入生成参数。",
+  generationGalleryReused: "已从图库填入生成参数。",
   generationLocatePending: "已定位到生成中的任务。",
   generationLocateSucceeded: "已定位到历史图像。",
   generationMissingPromptHistory: "这条历史记录没有可复制的提示词。",
@@ -492,14 +493,14 @@ const zhMessages = {
   homeFootCoordinate: "LOCAL · 127.0.0.1",
   homeFlowAgentCopy: "Agent 会先给出依赖、输出数和确认点，确认后才开始生成。",
   homeFlowAgentTitle: "确认计划",
-  homeFlowArchiveCopy: "作品进入历史和 Gallery，之后可定位、重跑、下载或继续改。",
+  homeFlowArchiveCopy: "作品进入历史和图库，之后可定位、重跑、下载或继续改。",
   homeFlowArchiveTitle: "复用输出",
   homeFlowBriefCopy: "写清主体、场景、尺寸和用途，后续参数都围绕这条 brief 展开。",
   homeFlowBriefTitle: "写下需求",
   homeFlowReferenceCopy: "直接圈选画布图片作为主体、构图、风格或产品参考。",
   homeFlowReferenceTitle: "圈选参考",
-  homeGallery: "打开 Gallery",
-  homeGalleryReview: "查看 Gallery 作品",
+  homeGallery: "打开图库",
+  homeGalleryReview: "查看图库作品",
   homeIndexArchive: "归档",
   homeIndexGenerate: "生成",
   homeIndexPrompt: "提示",
@@ -520,7 +521,7 @@ const zhMessages = {
   homeProviderCodex: "Codex 会话已可用",
   homeProviderNone: "等待接入生成服务",
   homeProviderOpenAI: "OpenAI API 已接入",
-  homeRailLeft: "提示词 · 参考图 · Agent · Gallery",
+  homeRailLeft: "提示词 · 参考图 · Agent · 图库",
   homeRailRight: "本地优先 · BYOK · 服务可控",
   homeSecurityNote: "API Key 只在服务端环境读取，浏览器不会保存或回显密钥。",
   homeStartCodex: "Codex 登录",
@@ -531,11 +532,11 @@ const zhMessages = {
   homeStatReferenceCopy: "参考图编辑",
   homeStatReferenceTitle: "参考",
   homeTitle: "把图像创作交回画布",
-  homeTrustGallery: "Gallery 连接提示词、输出图和后续复用。",
+  homeTrustGallery: "图库 连接提示词、输出图和后续复用。",
   homeTrustProvider: "当前服务来源和 fallback 顺序保持可见。",
   homeTrustRecover: "失败任务保留上下文，可重试、取消或重跑。",
   homeTrustSecret: "API Key 只在服务端读取，浏览器不保存也不回显。",
-  homeWireGallery: "Gallery 记录每次输出",
+  homeWireGallery: "图库 记录每次输出",
   homeWireMeta: "密钥不进浏览器 · 本地历史保留",
   homeWirePrompt: "提示词、尺寸、质量可复用",
   homeWireProvider: "OpenAI、兼容接口、Codex 顺序可见",
@@ -553,7 +554,7 @@ const zhMessages = {
   languageEn: "EN",
   languageZh: "中文",
   navCanvas: "画布",
-  navGallery: "Gallery",
+  navGallery: "图库",
   navHome: "首页",
   navMainAria: "主要页面",
   navOpenProviderConfig: "打开生成服务配置",
@@ -675,7 +676,7 @@ const zhMessages = {
     stylePresetLabels["zh-CN"][presetId as StylePresetId] ?? fallback ?? presetId,
   timeoutFormat: ({ seconds }: { seconds: number }) => `${seconds}s`,
   timeFallback15Minutes: "15 分钟后",
-  unreadableGallery: "Gallery",
+  unreadableGallery: "图库",
   modeLabel: ({ mode }: { mode: GenerationRecord["mode"] }) => generationModeLabels["zh-CN"][mode],
   galleryModeLabel: ({ mode }: { mode: "edit" | "generate" }) => (mode === "edit" ? "参考图" : "文生图")
 };
@@ -1192,22 +1193,22 @@ interface I18nContextValue {
 const I18nContext = createContext<I18nContextValue | null>(null);
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(() => initialLocale());
+  const locale = ACTIVE_LOCALE;
 
   useEffect(() => {
-    document.documentElement.lang = locale;
+    document.documentElement.lang = ACTIVE_LOCALE;
     try {
-      window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+      window.localStorage.removeItem(LOCALE_STORAGE_KEY);
     } catch {
-      // Ignore storage failures; language switching should still work in memory.
+      // Ignore storage failures; Chinese remains the in-memory default.
     }
-  }, [locale]);
-
-  const setLocale = useCallback((nextLocale: Locale) => {
-    setLocaleState(nextLocale);
   }, []);
 
-  const t = useMemo(() => createTranslate(locale), [locale]);
+  const setLocale = useCallback((_nextLocale: Locale) => {
+    // Language switching is intentionally disabled for the muxing build.
+  }, []);
+
+  const t = useMemo(() => createTranslate(ACTIVE_LOCALE), []);
   const formatDateTime = useCallback(
     (value: string, options: Intl.DateTimeFormatOptions = defaultDateTimeOptions): string => {
       const date = new Date(value);
@@ -1215,9 +1216,9 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
         return value;
       }
 
-      return new Intl.DateTimeFormat(locale, options).format(date);
+      return new Intl.DateTimeFormat(ACTIVE_LOCALE, options).format(date);
     },
-    [locale]
+    []
   );
 
   const value = useMemo(
@@ -1227,7 +1228,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
       t,
       formatDateTime
     }),
-    [formatDateTime, locale, setLocale, t]
+    [formatDateTime, setLocale, t]
   );
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
@@ -1266,31 +1267,6 @@ function createTranslate(locale: Locale): Translate {
     }
     return value;
   }) as Translate;
-}
-
-function initialLocale(): Locale {
-  const storedLocale = readStoredLocale();
-  if (storedLocale) {
-    return storedLocale;
-  }
-
-  return navigator.languages.some((language) => language.toLowerCase().startsWith("zh")) ||
-    navigator.language.toLowerCase().startsWith("zh")
-    ? "zh-CN"
-    : "en";
-}
-
-function readStoredLocale(): Locale | undefined {
-  try {
-    const value = window.localStorage.getItem(LOCALE_STORAGE_KEY);
-    return isLocale(value) ? value : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function isLocale(value: string | null): value is Locale {
-  return value === "zh-CN" || value === "en";
 }
 
 const defaultDateTimeOptions: Intl.DateTimeFormatOptions = {

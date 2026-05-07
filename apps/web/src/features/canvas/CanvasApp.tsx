@@ -62,7 +62,6 @@ import {
   isGenerationPlan,
   summarizeGenerationPlanOutputs
 } from "../agent/AgentPlanNodeShape";
-import { HomePage } from "../home/HomePage";
 import { InternalLoginScreen, type InternalSessionResponse } from "./InternalLoginScreen";
 import { ProviderConfigDialog } from "../provider-config/ProviderConfigDialog";
 import {
@@ -116,7 +115,7 @@ import {
   type StorageTestResult,
   type StylePresetId
 } from "@gpt-image-canvas/shared";
-import { LOCALES, localizedApiErrorMessage, useI18n, type Locale, type Translate } from "../../shared/i18n";
+import { localizedApiErrorMessage, useI18n, type Locale, type Translate } from "../../shared/i18n";
 import { assetDownloadUrl, assetPreviewUrl } from "../../shared/api/assets";
 
 const AUTOSAVE_DEBOUNCE_MS = 1200;
@@ -147,19 +146,11 @@ const TLDRAW_LICENSE_KEY =
   "tldraw-2026-08-08/WyJ3dGU4bldjRyIsWyIqIl0sMTYsIjIwMjYtMDgtMDgiXQ.Xt7lTydUhMnKfHfp+g8Mrs9gtJjlB8uPyYMniFEfRfruCYdYEl9J0uZl0lMAf6o7GdDB1zXOVhWLFAipssI6Cw";
 const TLDRAW_USER_ID = "gpt-image-canvas-local-user";
 
-function tldrawLocaleForLocale(locale: Locale): NonNullable<TLUserPreferences["locale"]> {
-  return locale === "zh-CN" ? "zh-cn" : "en";
+function tldrawLocaleForLocale(_locale: Locale): NonNullable<TLUserPreferences["locale"]> {
+  return "zh-cn";
 }
 
-function localeForTldrawLocale(locale: TLUserPreferences["locale"]): Locale | undefined {
-  if (locale === "zh-cn") {
-    return "zh-CN";
-  }
-
-  if (locale === "en") {
-    return "en";
-  }
-
+function localeForTldrawLocale(_locale: TLUserPreferences["locale"]): Locale | undefined {
   return undefined;
 }
 
@@ -280,7 +271,7 @@ function preloadGalleryPage(): void {
 }
 
 type PersistedSnapshot = TLEditorSnapshot | TLStoreSnapshot;
-type AppRoute = "home" | "canvas" | "gallery";
+type AppRoute = "canvas" | "gallery";
 type SaveStatus = "loading" | "saved" | "pending" | "saving" | "error";
 type GenerationMode = "text" | "reference";
 type PanelTab = "manual" | "agent";
@@ -521,19 +512,15 @@ function imageSizeValidationMessage(reason: ImageSizeValidationReason | undefine
 }
 
 function routeFromLocation(): AppRoute {
-  if (window.location.pathname === "/canvas") {
-    return "canvas";
-  }
-
-  return window.location.pathname === "/gallery" ? "gallery" : "home";
+  return window.location.pathname === "/gallery" ? "gallery" : "canvas";
 }
 
 function pathForRoute(route: AppRoute): string {
   if (route === "canvas") {
-    return "/canvas";
+    return "/";
   }
 
-  return route === "gallery" ? "/gallery" : "/";
+  return "/gallery";
 }
 
 function isPersistedSnapshot(value: unknown): value is PersistedSnapshot {
@@ -2243,25 +2230,11 @@ function TopNavigation({
         <div className="top-navigation__actions">
           <nav aria-label={t("navMainAria")} className="top-navigation__links">
             <a
-              aria-current={route === "home" ? "page" : undefined}
-              className="top-navigation__link"
-              data-active={route === "home"}
-              data-testid="nav-home"
-              href="/"
-              onClick={(event) => {
-                event.preventDefault();
-                onNavigate("home");
-              }}
-            >
-              <Sparkles className="size-4" aria-hidden="true" />
-              {t("navHome")}
-            </a>
-            <a
               aria-current={route === "canvas" ? "page" : undefined}
               className="top-navigation__link"
               data-active={route === "canvas"}
               data-testid="nav-canvas"
-              href="/canvas"
+              href="/"
               onClick={(event) => {
                 event.preventDefault();
                 onNavigate("canvas");
@@ -2287,7 +2260,6 @@ function TopNavigation({
               {t("navGallery")}
             </a>
           </nav>
-          <LanguageSwitcher />
           <button
             aria-label={t("navOpenProviderConfig")}
             className="top-navigation__settings"
@@ -2312,27 +2284,6 @@ function TopNavigation({
         </div>
       </div>
     </header>
-  );
-}
-
-function LanguageSwitcher() {
-  const { locale, setLocale, t } = useI18n();
-
-  return (
-    <div className="language-switcher" aria-label={t("languageAria")} role="group">
-      {LOCALES.map((item) => (
-        <button
-          aria-pressed={locale === item}
-          className="language-switcher__button"
-          data-active={locale === item}
-          key={item}
-          type="button"
-          onClick={() => setLocale(item)}
-        >
-          {item === "zh-CN" ? t("languageZh") : t("languageEn")}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -2511,7 +2462,6 @@ export function App() {
     setUserPreferences: syncTldrawUserPreferences
   });
   const [route, setRoute] = useState<AppRoute>(() => routeFromLocation());
-  const shouldAutoOpenCanvasRef = useRef(route !== "gallery");
   const [internalUserEmail, setInternalUserEmail] = useState<string | null>(null);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -2672,10 +2622,6 @@ export function App() {
   );
 
   const navigateToRoute = useCallback((nextRoute: AppRoute, options: { replace?: boolean } = {}): void => {
-    if (!options.replace) {
-      shouldAutoOpenCanvasRef.current = false;
-    }
-
     const nextPath = pathForRoute(nextRoute);
     if (window.location.pathname !== nextPath) {
       if (options.replace) {
@@ -2968,20 +2914,10 @@ export function App() {
   }, [agentMessages]);
 
   useEffect(() => {
-    if (isAuthLoading || !authStatus || route === "gallery") {
-      return;
-    }
-
-    if (route === "home" && hasGenerationProvider && shouldAutoOpenCanvasRef.current) {
-      shouldAutoOpenCanvasRef.current = false;
+    if (!isAuthLoading && authStatus && route === "canvas" && window.location.pathname === "/canvas") {
       navigateToRoute("canvas", { replace: true });
-      return;
     }
-
-    if (route === "canvas" && !hasGenerationProvider) {
-      navigateToRoute("home", { replace: true });
-    }
-  }, [authStatus, hasGenerationProvider, isAuthLoading, navigateToRoute, route]);
+  }, [authStatus, isAuthLoading, navigateToRoute, route]);
 
   useEffect(() => {
     if (!internalUserEmail) {
@@ -5078,7 +5014,7 @@ export function App() {
   }
 
   return (
-    <div className="app-root" data-canvas-theme={route !== "home" && isCanvasDarkMode ? "dark" : "light"}>
+    <div className="app-root" data-canvas-theme={isCanvasDarkMode ? "dark" : "light"}>
       <TopNavigation
         internalUserEmail={internalUserEmail}
         route={route}
@@ -5087,17 +5023,6 @@ export function App() {
         onOpenProviderConfig={() => setIsProviderConfigDialogOpen(true)}
         onPreloadGallery={preloadGalleryPage}
       />
-      {route === "home" ? (
-        <HomePage
-          authError={authError}
-          authStatus={authStatus}
-          isAuthLoading={isAuthLoading}
-          isCodexStarting={codexLoginStatus === "starting"}
-          onOpenProviderConfig={() => setIsProviderConfigDialogOpen(true)}
-          onOpenGallery={() => navigateToRoute("gallery")}
-          onStartCodexLogin={startCodexLogin}
-        />
-      ) : null}
       <main className="app-shell app-view relative flex min-h-0 overflow-hidden bg-neutral-950 text-neutral-900" data-active-route={route} hidden={route !== "canvas"}>
       <section
         className="relative min-w-0 flex-1 bg-neutral-100 outline-none"
