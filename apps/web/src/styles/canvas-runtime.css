@@ -194,9 +194,10 @@
     display: inline-flex;
     position: fixed;
     right: max(1rem, calc(1rem + env(safe-area-inset-right)));
-    bottom: max(1rem, calc(1rem + env(safe-area-inset-bottom)));
+    bottom: max(7.5rem, calc(7.5rem + env(safe-area-inset-bottom)));
     z-index: 1800;
     height: 2.75rem;
+    max-width: min(15rem, calc(100vw - 2rem));
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
@@ -209,6 +210,7 @@
     font-weight: 700;
     line-height: 1;
     padding: 0 1rem;
+    white-space: nowrap;
     transition:
       background-color 150ms ease,
       box-shadow 150ms ease,
