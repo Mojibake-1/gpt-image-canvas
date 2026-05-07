@@ -2,6 +2,8 @@
   --paper: #12100e;
   --paper-soft: #191512;
   --paper-panel: #1d1815;
+  --canvas-paper: #100e0c;
+  --canvas-paper-grid: rgb(245 164 111 / 0.16);
   --ink: #fff7ed;
   --muted-ink: #b8aa9b;
   --line: #3a3029;
@@ -89,6 +91,11 @@
 
 .app-root[data-canvas-theme="dark"] .app-shell {
   background: #0f0f10;
+}
+
+.app-root[data-canvas-theme="dark"] [data-testid="canvas-shell"],
+.app-root[data-canvas-theme="dark"] [data-testid="canvas-shell"] .tl-background {
+  background-color: var(--canvas-paper);
 }
 
 .app-root[data-canvas-theme="dark"] .ai-panel {
