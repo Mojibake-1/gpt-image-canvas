@@ -1,10 +1,43 @@
 import type { Hono } from "hono";
 import { parsePreviewWidth, readStoredAssetPreview } from "../../domain/assets/preview.js";
-import { readStoredAsset, readStoredAssetMetadata } from "../../domain/generation/image-generation.js";
+import { readStoredAsset, readStoredAssetMetadata, saveImageDataUrlAsset } from "../../domain/generation/image-generation.js";
+import { ProviderError } from "../../infrastructure/providers/image-provider.js";
 import { requireInternalUserEmail } from "../internal-auth.js";
-import { downloadFileName, errorResponse } from "../http/errors.js";
+import { downloadFileName, errorResponse, providerErrorJson } from "../http/errors.js";
+import { readJson } from "../http/json.js";
 
 export function registerAssetRoutes(app: Hono): void {
+  app.post("/api/assets", async (c) => {
+    const payload = await readJson(c.req.raw);
+    if (!payload.ok) {
+      return c.json(payload.error, 400);
+    }
+
+    if (!isRecord(payload.value) || typeof payload.value.dataUrl !== "string") {
+      return c.json(errorResponse("invalid_request", "Asset upload requires a dataUrl string."), 400);
+    }
+
+    const fileName = typeof payload.value.fileName === "string" && payload.value.fileName.trim() ? payload.value.fileName.trim() : undefined;
+
+    try {
+      return c.json(
+        await saveImageDataUrlAsset(
+          {
+            dataUrl: payload.value.dataUrl,
+            fileName
+          },
+          requireInternalUserEmail(c)
+        )
+      );
+    } catch (error) {
+      if (error instanceof ProviderError) {
+        return providerErrorJson(c, error);
+      }
+
+      throw error;
+    }
+  });
+
   app.get("/api/assets/:id/preview", async (c) => {
     const parsedWidth = parsePreviewWidth(c.req.query("width"));
     if (!parsedWidth.ok) {
@@ -66,4 +99,8 @@ export function registerAssetRoutes(app: Hono): void {
       }
     });
   });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

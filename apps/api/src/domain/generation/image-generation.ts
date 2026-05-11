@@ -177,7 +177,7 @@ function persistedReferenceAssetIdCandidates(assetId: string): string[] {
 }
 
 
-async function saveReferenceImageInput(input: ReferenceImageInput, ownerEmail: string): Promise<GeneratedAsset> {
+export async function saveImageDataUrlAsset(input: ReferenceImageInput, ownerEmail: string): Promise<GeneratedAsset> {
   const parsed = referenceDataUrlToBytes(input);
   const imageSize = await readImageSize(parsed.bytes);
   if (!imageSize) {
@@ -213,6 +213,10 @@ async function saveReferenceImageInput(input: ReferenceImageInput, ownerEmail: s
     width: imageSize.width,
     height: imageSize.height
   };
+}
+
+async function saveReferenceImageInput(input: ReferenceImageInput, ownerEmail: string): Promise<GeneratedAsset> {
+  return saveImageDataUrlAsset(input, ownerEmail);
 }
 
 function referenceDataUrlToBytes(input: ReferenceImageInput): { bytes: Buffer; mimeType: string } {

@@ -119,6 +119,7 @@ import {
 } from "@gpt-image-canvas/shared";
 import { localizedApiErrorMessage, useI18n, type Locale, type Translate } from "../../shared/i18n";
 import { assetDownloadUrl, assetPreviewUrl } from "../../shared/api/assets";
+import { persistDataUrlAssetsInSnapshot, uploadCanvasDataUrlAsset } from "./snapshot-assets";
 
 const AUTOSAVE_DEBOUNCE_MS = 1200;
 const AGENT_SOCKET_PING_INTERVAL_MS = 15_000;
@@ -226,8 +227,14 @@ const defaultStorageConfigForm: StorageConfigFormState = {
 
 const canvasAssetStore: TLAssetStore = {
   async upload(_asset, file) {
+    const dataUrl = await blobToDataUrl(file);
+    const uploaded = await uploadCanvasDataUrlAsset({
+      dataUrl,
+      fileName: file.name || undefined
+    });
+
     return {
-      src: await blobToDataUrl(file)
+      src: uploaded?.url ?? dataUrl
     };
   },
   resolve(asset, context) {
@@ -3353,13 +3360,17 @@ export function App() {
       setSaveError("");
 
       try {
+        const snapshot = await persistDataUrlAssetsInSnapshot(
+          filterLoadingPlaceholdersFromSnapshot(editor.getSnapshot()),
+          uploadCanvasDataUrlAsset
+        );
         const response = await fetch("/api/project", {
           method: "PUT",
           headers: {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            snapshot: filterLoadingPlaceholdersFromSnapshot(editor.getSnapshot())
+            snapshot
           })
         });
 
