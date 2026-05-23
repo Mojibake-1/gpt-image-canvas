@@ -350,6 +350,16 @@ function routeFromLocation(): AppRoute {
   return window.location.pathname === "/gallery" ? "gallery" : "canvas";
 }
 
+function isMuxingEmbedMode(): boolean {
+  const embedValue = new URLSearchParams(window.location.search).get("muxing-embed");
+  if (embedValue === null) {
+    return false;
+  }
+
+  const normalizedValue = embedValue.trim().toLowerCase();
+  return normalizedValue !== "0" && normalizedValue !== "false";
+}
+
 function pathForRoute(route: AppRoute): string {
   return route === "gallery" ? "/gallery" : "/";
 }
@@ -1970,6 +1980,7 @@ export function App() {
   const [isStorageTesting, setIsStorageTesting] = useState(false);
   const [referenceSelection, setReferenceSelection] = useState<ReferenceSelection>(() => missingReferenceSelection(t));
   const [isCanvasDarkMode, setIsCanvasDarkMode] = useState(false);
+  const isMuxingEmbed = useMemo(() => isMuxingEmbedMode(), []);
   const canvasShellRef = useRef<HTMLElement | null>(null);
   const panelCloseButtonRef = useRef<HTMLButtonElement | null>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -3125,15 +3136,17 @@ export function App() {
   }
 
   return (
-    <div className="app-root" data-canvas-theme={isCanvasDarkMode ? "dark" : "light"}>
-      <TopNavigation
-        internalUserEmail={internalUserEmail}
-        route={route}
-        onNavigate={navigateToRoute}
-        onLogoutInternalUser={() => void logoutInternalUser()}
-        onOpenProviderConfig={() => setIsProviderConfigDialogOpen(true)}
-        onPreloadGallery={preloadGalleryPage}
-      />
+    <div className="app-root" data-canvas-theme={isCanvasDarkMode ? "dark" : "light"} data-muxing-embed={isMuxingEmbed ? "true" : undefined}>
+      {!isMuxingEmbed ? (
+        <TopNavigation
+          internalUserEmail={internalUserEmail}
+          route={route}
+          onNavigate={navigateToRoute}
+          onLogoutInternalUser={() => void logoutInternalUser()}
+          onOpenProviderConfig={() => setIsProviderConfigDialogOpen(true)}
+          onPreloadGallery={preloadGalleryPage}
+        />
+      ) : null}
       <main className="app-shell app-view relative flex min-h-0 overflow-hidden bg-neutral-950 text-neutral-900" data-active-route={route} hidden={route !== "canvas"}>
       <section
         className="relative min-w-0 flex-1 bg-neutral-100 outline-none"
