@@ -58,6 +58,10 @@ interface SavedProviderImage {
   cloudStorage?: AssetCloudStorageRecord;
 }
 
+interface GenerationRunOptions {
+  disableCloudStorage?: boolean;
+}
+
 interface AssetCloudStorageRecord {
   provider: "cos" | "r2";
   bucket: string;
@@ -82,11 +86,17 @@ const mimeTypes: Record<OutputFormat, string> = {
   webp: "image/webp"
 };
 
-export async function runTextToImageGeneration(input: ImageProviderInput, provider: ImageProvider, ownerEmail: string, signal?: AbortSignal): Promise<GenerationResponse> {
+export async function runTextToImageGeneration(
+  input: ImageProviderInput,
+  provider: ImageProvider,
+  ownerEmail: string,
+  signal?: AbortSignal,
+  options: GenerationRunOptions = {}
+): Promise<GenerationResponse> {
   const outputs = await mapWithConcurrency(
     Array.from({ length: input.count }, (_, index) => index),
     input.count,
-    async () => generateSingleOutput(input, provider, signal)
+    async () => generateSingleOutput(input, provider, signal, options)
   );
 
   const record = saveGenerationRecord(
@@ -107,7 +117,8 @@ export async function runReferenceImageGeneration(
   input: EditImageProviderInput,
   provider: ImageProvider,
   ownerEmail: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options: GenerationRunOptions = {}
 ): Promise<GenerationResponse> {
   const referenceAssetIds = await ensureReferenceAssetIds(input, ownerEmail);
   const inputWithReferenceAssets: EditImageProviderInput = {
@@ -119,7 +130,7 @@ export async function runReferenceImageGeneration(
   const outputs = await mapWithConcurrency(
     Array.from({ length: inputWithReferenceAssets.count }, (_, index) => index),
     inputWithReferenceAssets.count,
-    async () => editSingleOutput(inputWithReferenceAssets, provider, signal)
+    async () => editSingleOutput(inputWithReferenceAssets, provider, signal, options)
   );
 
   const record = saveGenerationRecord(
@@ -275,7 +286,12 @@ export async function readStoredAssetMetadata(assetId: string, ownerEmail?: stri
   };
 }
 
-async function generateSingleOutput(input: ImageProviderInput, provider: ImageProvider, signal?: AbortSignal): Promise<BatchOutputResult> {
+async function generateSingleOutput(
+  input: ImageProviderInput,
+  provider: ImageProvider,
+  signal?: AbortSignal,
+  options: GenerationRunOptions = {}
+): Promise<BatchOutputResult> {
   const outputId = randomUUID();
 
   try {
@@ -294,7 +310,7 @@ async function generateSingleOutput(input: ImageProviderInput, provider: ImagePr
       throw new ProviderError("unsupported_provider_behavior", "上游图像服务没有返回图像结果。", 502);
     }
 
-    const saved = await saveProviderImage(providerImage, input, signal);
+    const saved = await saveProviderImage(providerImage, input, signal, options);
 
     return {
       id: outputId,
@@ -315,7 +331,12 @@ async function generateSingleOutput(input: ImageProviderInput, provider: ImagePr
   }
 }
 
-async function editSingleOutput(input: EditImageProviderInput, provider: ImageProvider, signal?: AbortSignal): Promise<BatchOutputResult> {
+async function editSingleOutput(
+  input: EditImageProviderInput,
+  provider: ImageProvider,
+  signal?: AbortSignal,
+  options: GenerationRunOptions = {}
+): Promise<BatchOutputResult> {
   const outputId = randomUUID();
 
   try {
@@ -334,7 +355,7 @@ async function editSingleOutput(input: EditImageProviderInput, provider: ImagePr
       throw new ProviderError("unsupported_provider_behavior", "上游图像服务没有返回图像结果。", 502);
     }
 
-    const saved = await saveProviderImage(providerImage, input, signal);
+    const saved = await saveProviderImage(providerImage, input, signal, options);
 
     return {
       id: outputId,
@@ -355,7 +376,12 @@ async function editSingleOutput(input: EditImageProviderInput, provider: ImagePr
   }
 }
 
-async function saveProviderImage(image: ProviderImage, input: ImageProviderInput, _signal?: AbortSignal): Promise<SavedProviderImage> {
+async function saveProviderImage(
+  image: ProviderImage,
+  input: ImageProviderInput,
+  _signal?: AbortSignal,
+  options: GenerationRunOptions = {}
+): Promise<SavedProviderImage> {
   const assetId = randomUUID();
   const fileName = `${assetId}.${input.outputFormat === "jpeg" ? "jpg" : input.outputFormat}`;
   const relativePath = `assets/${fileName}`;
@@ -369,12 +395,14 @@ async function saveProviderImage(image: ProviderImage, input: ImageProviderInput
   }
 
   await localAssetStorage.putObject({ filePath, bytes });
-  const cloudStorage = await saveAssetToConfiguredCloud({
-    fileName,
-    bytes,
-    mimeType,
-    createdAt: new Date().toISOString()
-  });
+  const cloudStorage = options.disableCloudStorage
+    ? undefined
+    : await saveAssetToConfiguredCloud({
+        fileName,
+        bytes,
+        mimeType,
+        createdAt: new Date().toISOString()
+      });
 
   return {
     asset: {

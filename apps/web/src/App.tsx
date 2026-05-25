@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   Sparkles,
   Square,
+  UserRound,
   X,
   XCircle
 } from "lucide-react";
@@ -98,6 +99,7 @@ const ASSET_PREVIEW_WIDTHS = [256, 512, 1024, 2048] as const;
 type AssetPreviewWidth = (typeof ASSET_PREVIEW_WIDTHS)[number];
 const GENERATED_ASSET_INITIAL_PREVIEW_WIDTH: AssetPreviewWidth = 2048;
 const SUPPORTED_REFERENCE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]);
+const INTERNAL_GUEST_EMAIL = "guest@muxing.cfd";
 const initialCanvasPreviewWidths = new Map<string, AssetPreviewWidth>();
 const assetMetadataCache = new Map<string, ImageSize>();
 const assetMetadataRequests = new Map<string, Promise<ImageSize | undefined>>();
@@ -257,6 +259,7 @@ interface StorageConfigFormState {
 interface InternalSessionResponse {
   authenticated: boolean;
   email?: string;
+  isGuest?: boolean;
 }
 
 interface ReferenceSelectionItem {
@@ -1622,7 +1625,8 @@ function InternalLoginScreen({
   isLoading,
   isSubmitting,
   onEmailChange,
-  onSubmit
+  onSubmit,
+  onGuestSubmit
 }: {
   email: string;
   error: string;
@@ -1630,6 +1634,7 @@ function InternalLoginScreen({
   isSubmitting: boolean;
   onEmailChange: (email: string) => void;
   onSubmit: () => void;
+  onGuestSubmit: () => void;
 }) {
   return (
     <main className="app-root flex min-h-screen items-center justify-center bg-neutral-950 px-4 py-10 text-neutral-900">
@@ -1672,6 +1677,10 @@ function InternalLoginScreen({
           <button className="primary-action h-11 w-full" disabled={isLoading || isSubmitting} type="submit">
             {isLoading || isSubmitting ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <ShieldCheck className="size-4" aria-hidden="true" />}
             进入 Canvas
+          </button>
+          <button className="secondary-action h-11 w-full" disabled={isLoading || isSubmitting} type="button" onClick={onGuestSubmit}>
+            {isLoading || isSubmitting ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <UserRound className="size-4" aria-hidden="true" />}
+            Guest 访问（仅自定义）
           </button>
         </form>
       </section>
@@ -1937,6 +1946,7 @@ export function App() {
   });
   const [route, setRoute] = useState<AppRoute>(() => routeFromLocation());
   const [internalUserEmail, setInternalUserEmail] = useState<string | null>(null);
+  const [isGuestSession, setIsGuestSession] = useState(false);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginError, setLoginError] = useState("");
   const [isInternalSessionLoading, setIsInternalSessionLoading] = useState(true);
@@ -2164,11 +2174,14 @@ export function App() {
 
         const session = (await response.json()) as InternalSessionResponse;
         if (!controller.signal.aborted) {
-          setInternalUserEmail(session.authenticated && session.email ? session.email : null);
+          const nextEmail = session.authenticated && session.email ? session.email : null;
+          setInternalUserEmail(nextEmail);
+          setIsGuestSession(Boolean(nextEmail && (session.isGuest || nextEmail === INTERNAL_GUEST_EMAIL)));
         }
       } catch {
         if (!controller.signal.aborted) {
           setInternalUserEmail(null);
+          setIsGuestSession(false);
           setLoginError("无法读取登录状态，请刷新后重试。");
         }
       } finally {
@@ -2238,9 +2251,10 @@ export function App() {
   }, [internalUserEmail]);
 
   useEffect(() => {
-    if (!internalUserEmail) {
+    if (!internalUserEmail || isGuestSession) {
       setIsAuthLoading(false);
       setAuthStatus(null);
+      setAuthError("");
       return;
     }
 
@@ -2251,11 +2265,12 @@ export function App() {
     return () => {
       controller.abort();
     };
-  }, [internalUserEmail, loadAuthStatus]);
+  }, [internalUserEmail, isGuestSession, loadAuthStatus]);
 
   useEffect(() => {
-    if (!internalUserEmail) {
+    if (!internalUserEmail || isGuestSession) {
       setStorageConfig(null);
+      setStorageError("");
       return;
     }
 
@@ -2290,7 +2305,7 @@ export function App() {
     return () => {
       controller.abort();
     };
-  }, [internalUserEmail, t]);
+  }, [internalUserEmail, isGuestSession, t]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(MOBILE_DRAWER_MEDIA_QUERY);
@@ -3104,6 +3119,7 @@ export function App() {
       }
 
       setInternalUserEmail(session.email);
+      setIsGuestSession(Boolean(session.isGuest || session.email === INTERNAL_GUEST_EMAIL));
       setLoginEmail(session.email);
       setLoginError("");
     } catch (error) {
@@ -3113,9 +3129,38 @@ export function App() {
     }
   }
 
+  async function loginGuestUser(): Promise<void> {
+    setLoginError("");
+    setIsInternalLoginSubmitting(true);
+    try {
+      const response = await fetch("/api/guest-login", {
+        method: "POST"
+      });
+
+      if (!response.ok) {
+        throw new Error(await readErrorMessage(response, locale, t));
+      }
+
+      const session = (await response.json()) as InternalSessionResponse;
+      if (!session.authenticated || !session.email) {
+        throw new Error(locale === "zh-CN" ? "Guest 登录失败，请重试。" : "Guest sign-in failed. Try again.");
+      }
+
+      setInternalUserEmail(session.email);
+      setIsGuestSession(Boolean(session.isGuest || session.email === INTERNAL_GUEST_EMAIL));
+      setLoginEmail(session.email);
+      setLoginError("");
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : locale === "zh-CN" ? "Guest 登录失败，请重试。" : "Guest sign-in failed. Try again.");
+    } finally {
+      setIsInternalLoginSubmitting(false);
+    }
+  }
+
   async function logoutInternalUser(): Promise<void> {
     await fetch("/api/internal-logout", { method: "POST" }).catch(() => undefined);
     setInternalUserEmail(null);
+    setIsGuestSession(false);
     setProjectSnapshot(undefined);
     setGenerationHistory([]);
     setIsProjectLoaded(false);
@@ -3131,6 +3176,7 @@ export function App() {
         isSubmitting={isInternalLoginSubmitting}
         onEmailChange={setLoginEmail}
         onSubmit={() => void loginInternalUser()}
+        onGuestSubmit={() => void loginGuestUser()}
       />
     );
   }
@@ -3222,29 +3268,33 @@ export function App() {
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <ProviderStatusPopover
-                authError={authError}
-                authStatus={authStatus}
-                codexLoginStatus={codexLoginStatus}
-                isAuthLoading={isAuthLoading}
-                onLogoutCodex={logoutCodexSession}
-                onStartCodexLogin={startCodexLogin}
-              />
-              <button
-                aria-label={t("storageSettings")}
-                className={`inline-flex h-7 items-center justify-center gap-1.5 rounded-md border px-2 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-cyan-100 ${
-                  storageConfig?.enabled
-                    ? "border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100"
-                    : "border-neutral-200 bg-white text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900"
-                }`}
-                data-testid="storage-settings-button"
-                title={storageConfig?.enabled ? t("storageEnabledTitle") : t("storageDisabledTitle")}
-                type="button"
-                onClick={openStorageDialog}
-              >
-                <Cloud className="size-4" aria-hidden="true" />
-                <span>{storageConfig?.enabled ? t("storageEnabledShort") : t("storageDisabledShort")}</span>
-              </button>
+              {!isGuestSession ? (
+                <ProviderStatusPopover
+                  authError={authError}
+                  authStatus={authStatus}
+                  codexLoginStatus={codexLoginStatus}
+                  isAuthLoading={isAuthLoading}
+                  onLogoutCodex={logoutCodexSession}
+                  onStartCodexLogin={startCodexLogin}
+                />
+              ) : null}
+              {!isGuestSession ? (
+                <button
+                  aria-label={t("storageSettings")}
+                  className={`inline-flex h-7 items-center justify-center gap-1.5 rounded-md border px-2 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-cyan-100 ${
+                    storageConfig?.enabled
+                      ? "border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100"
+                      : "border-neutral-200 bg-white text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900"
+                  }`}
+                  data-testid="storage-settings-button"
+                  title={storageConfig?.enabled ? t("storageEnabledTitle") : t("storageDisabledTitle")}
+                  type="button"
+                  onClick={openStorageDialog}
+                >
+                  <Cloud className="size-4" aria-hidden="true" />
+                  <span>{storageConfig?.enabled ? t("storageEnabledShort") : t("storageDisabledShort")}</span>
+                </button>
+              ) : null}
               <div
                 className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium ${
                   saveStatus === "error" ? "bg-red-50 text-red-700" : "bg-neutral-100 text-neutral-600"
@@ -4030,6 +4080,7 @@ export function App() {
         <ProviderConfigDialog
           isAuthLoading={isAuthLoading}
           isCodexStarting={codexLoginStatus === "starting"}
+          localOnly={isGuestSession}
           onClose={closeProviderConfigDialog}
           onLogoutCodex={logoutCodexSession}
           onRefreshAuthStatus={loadAuthStatus}

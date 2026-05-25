@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { serve } from "@hono/node-server";
@@ -22,6 +23,7 @@ import {
   composePrompt,
   validateSceneImageSize,
   type AppConfig,
+  type AuthStatusResponse,
   type GenerationCount,
   type ImageQuality,
   type ImageSize,
@@ -38,6 +40,7 @@ import {
   ProviderError,
   getConfiguredImageModel,
   type EditImageProviderInput,
+  type ImageProvider,
   type ImageProviderInput
 } from "./image-provider.js";
 import { createConfiguredImageProvider } from "./image-provider-selection.js";
@@ -63,7 +66,11 @@ const MAX_PROJECT_SNAPSHOT_BYTES = 100 * 1024 * 1024;
 const MAX_PROJECT_NAME_LENGTH = 120;
 const INTERNAL_AUTH_COOKIE = "muxing_canvas_user";
 const INTERNAL_EMAIL_PATTERN = /^[^@\s]+@muxing\.cfd$/u;
+const INTERNAL_GUEST_EMAIL = "guest@muxing.cfd";
+const INTERNAL_GUEST_EMAIL_PATTERN = /^guest\+[0-9a-f-]+@muxing\.cfd$/u;
 const INTERNAL_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
+const GUEST_PROVIDER_SOURCE_ORDER: readonly ProviderSourceId[] = ["local-openai"];
+const GUEST_ONLY_PROVIDER_MESSAGE = "Guest only supports custom local API configuration. Save a local API key in settings first.";
 
 interface ProjectPayload {
   name?: string;
@@ -107,8 +114,13 @@ app.get("/api/config", (c) => {
 });
 
 app.get("/api/internal-session", (c) => {
-  const email = getInternalUserEmail(c);
-  return c.json(email ? { authenticated: true, email } : { authenticated: false });
+  let email = getInternalUserEmail(c);
+  if (email === INTERNAL_GUEST_EMAIL) {
+    email = createGuestUserEmail();
+    ensureProjectForOwner(email);
+    c.header("Set-Cookie", createInternalAuthCookie(c, email));
+  }
+  return c.json(email ? { authenticated: true, email, isGuest: isGuestUserEmail(email) } : { authenticated: false });
 });
 
 app.post("/api/internal-login", async (c) => {
@@ -124,7 +136,14 @@ app.post("/api/internal-login", async (c) => {
 
   ensureProjectForOwner(email);
   c.header("Set-Cookie", createInternalAuthCookie(c, email));
-  return c.json({ authenticated: true, email });
+  return c.json({ authenticated: true, email, isGuest: isGuestUserEmail(email) });
+});
+
+app.post("/api/guest-login", (c) => {
+  const email = createGuestUserEmail();
+  ensureProjectForOwner(email);
+  c.header("Set-Cookie", createInternalAuthCookie(c, email));
+  return c.json({ authenticated: true, email, isGuest: true });
 });
 
 app.post("/api/internal-logout", (c) => {
@@ -140,29 +159,43 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 
-app.get("/api/auth/status", (c) => c.json(getAuthStatus()));
+app.get("/api/auth/status", (c) => {
+  const email = requireInternalUserEmail(c);
+  return c.json(isGuestUserEmail(email) ? getGuestAuthStatus(email) : getAuthStatus());
+});
 
-app.get("/api/provider-config", (c) => c.json(getProviderConfig()));
+app.get("/api/provider-config", (c) => {
+  const email = requireInternalUserEmail(c);
+  return c.json(isGuestUserEmail(email) ? getGuestProviderConfig(email) : getProviderConfig());
+});
 
 app.put("/api/provider-config", async (c) => {
+  const email = requireInternalUserEmail(c);
+  const isGuest = isGuestUserEmail(email);
   const payload = await readJson(c.req.raw);
   if (!payload.ok) {
     return c.json(payload.error, 400);
   }
 
-  const parsed = parseProviderConfigPayload(payload.value);
+  const parsed = parseProviderConfigPayload(payload.value, { localOnly: isGuest });
   if (!parsed.ok) {
     return c.json(parsed.error, 400);
   }
 
   try {
-    return c.json(saveProviderConfig(parsed.value));
+    return c.json(
+      saveProviderConfig(parsed.value, isGuest ? { id: guestProviderConfigId(email), localOnly: true } : undefined)
+    );
   } catch (error) {
     return c.json(errorResponse("provider_config_error", errorToMessage(error)), 400);
   }
 });
 
 app.post("/api/auth/codex/device/start", async (c) => {
+  if (isGuestRequest(c)) {
+    return forbiddenForGuest(c);
+  }
+
   try {
     return c.json(await startCodexDeviceLogin(c.req.raw.signal));
   } catch (error) {
@@ -175,6 +208,10 @@ app.post("/api/auth/codex/device/start", async (c) => {
 });
 
 app.post("/api/auth/codex/device/poll", async (c) => {
+  if (isGuestRequest(c)) {
+    return forbiddenForGuest(c);
+  }
+
   const payload = await readJson(c.req.raw);
   if (!payload.ok) {
     return c.json(payload.error, 400);
@@ -196,7 +233,13 @@ app.post("/api/auth/codex/device/poll", async (c) => {
   }
 });
 
-app.post("/api/auth/codex/logout", (c) => c.json(logoutCodex()));
+app.post("/api/auth/codex/logout", (c) => {
+  if (isGuestRequest(c)) {
+    return forbiddenForGuest(c);
+  }
+
+  return c.json(logoutCodex());
+});
 
 app.get("/api/project", (c) => c.json(getProjectState(requireInternalUserEmail(c))));
 
@@ -213,9 +256,19 @@ app.delete("/api/gallery/:outputId", (c) => {
   });
 });
 
-app.get("/api/storage/config", (c) => c.json(getStorageConfig()));
+app.get("/api/storage/config", (c) => {
+  if (isGuestRequest(c)) {
+    return forbiddenForGuest(c);
+  }
+
+  return c.json(getStorageConfig());
+});
 
 app.put("/api/storage/config", async (c) => {
+  if (isGuestRequest(c)) {
+    return forbiddenForGuest(c);
+  }
+
   const payload = await readJson(c.req.raw);
   if (!payload.ok) {
     return c.json(payload.error, 400);
@@ -234,6 +287,10 @@ app.put("/api/storage/config", async (c) => {
 });
 
 app.post("/api/storage/config/test", async (c) => {
+  if (isGuestRequest(c)) {
+    return forbiddenForGuest(c);
+  }
+
   const payload = await readJson(c.req.raw);
   if (!payload.ok) {
     return c.json(payload.error, 400);
@@ -329,6 +386,7 @@ app.put("/api/project", async (c) => {
 
 app.post("/api/images/generate", async (c) => {
   const ownerEmail = requireInternalUserEmail(c);
+  const isGuest = isGuestUserEmail(ownerEmail);
   const payload = await readJson(c.req.raw);
   if (!payload.ok) {
     return c.json(payload.error, 400);
@@ -340,8 +398,8 @@ app.post("/api/images/generate", async (c) => {
   }
 
   try {
-    const provider = await createConfiguredImageProvider(c.req.raw.signal);
-    return c.json(await runTextToImageGeneration(parsed.value, provider, ownerEmail, c.req.raw.signal));
+    const provider = await createProviderForUser(ownerEmail, c.req.raw.signal);
+    return c.json(await runTextToImageGeneration(parsed.value, provider, ownerEmail, c.req.raw.signal, { disableCloudStorage: isGuest }));
   } catch (error) {
     if (error instanceof ProviderError) {
       return providerErrorJson(c, error);
@@ -353,6 +411,7 @@ app.post("/api/images/generate", async (c) => {
 
 app.post("/api/images/edit", async (c) => {
   const ownerEmail = requireInternalUserEmail(c);
+  const isGuest = isGuestUserEmail(ownerEmail);
   const payload = await readJson(c.req.raw);
   if (!payload.ok) {
     return c.json(payload.error, 400);
@@ -364,8 +423,8 @@ app.post("/api/images/edit", async (c) => {
   }
 
   try {
-    const provider = await createConfiguredImageProvider(c.req.raw.signal);
-    return c.json(await runReferenceImageGeneration(parsed.value, provider, ownerEmail, c.req.raw.signal));
+    const provider = await createProviderForUser(ownerEmail, c.req.raw.signal);
+    return c.json(await runReferenceImageGeneration(parsed.value, provider, ownerEmail, c.req.raw.signal, { disableCloudStorage: isGuest }));
   } catch (error) {
     if (error instanceof ProviderError) {
       return providerErrorJson(c, error);
@@ -412,6 +471,43 @@ function parseInternalLoginEmail(input: unknown): string | undefined {
   return normalizeInternalEmail(input.email);
 }
 
+function createProviderForUser(ownerEmail: string, signal?: AbortSignal): Promise<ImageProvider> {
+  if (isGuestUserEmail(ownerEmail)) {
+    return createConfiguredImageProvider({
+      localConfigId: guestProviderConfigId(ownerEmail),
+      signal,
+      sourceOrder: GUEST_PROVIDER_SOURCE_ORDER,
+      missingProviderMessage: GUEST_ONLY_PROVIDER_MESSAGE
+    });
+  }
+
+  return createConfiguredImageProvider({ signal });
+}
+
+function getGuestProviderConfig(ownerEmail: string) {
+  return getProviderConfig({ id: guestProviderConfigId(ownerEmail), localOnly: true });
+}
+
+function getGuestAuthStatus(ownerEmail: string): AuthStatusResponse {
+  const providerConfig = getGuestProviderConfig(ownerEmail);
+  return {
+    provider: providerConfig.activeSource?.provider ?? "none",
+    openaiConfigured: Boolean(providerConfig.activeSource),
+    codex: {
+      available: false
+    },
+    activeSource: providerConfig.activeSource
+  };
+}
+
+function guestProviderConfigId(ownerEmail: string): string {
+  return `guest:${ownerEmail}`;
+}
+
+function createGuestUserEmail(): string {
+  return `guest+${randomUUID()}@muxing.cfd`;
+}
+
 function requireInternalUserEmail(c: Context): string {
   const email = getInternalUserEmail(c);
   if (!email) {
@@ -423,6 +519,19 @@ function requireInternalUserEmail(c: Context): string {
 
 function getInternalUserEmail(c: Context): string | undefined {
   return normalizeInternalEmail(getCookieValue(c.req.header("cookie"), INTERNAL_AUTH_COOKIE));
+}
+
+function isGuestRequest(c: Context): boolean {
+  const email = getInternalUserEmail(c);
+  return Boolean(email && isGuestUserEmail(email));
+}
+
+function isGuestUserEmail(email: string): boolean {
+  return email === INTERNAL_GUEST_EMAIL || INTERNAL_GUEST_EMAIL_PATTERN.test(email);
+}
+
+function forbiddenForGuest(c: Context) {
+  return c.json(errorResponse("forbidden_guest", "Guest mode only supports custom local API configuration."), 403);
 }
 
 function normalizeInternalEmail(value: unknown): string | undefined {
@@ -785,7 +894,10 @@ function parseStorageConfigPayload(input: unknown): ParseResult<SaveStorageConfi
   };
 }
 
-function parseProviderConfigPayload(input: unknown): ParseResult<SaveProviderConfigRequest> {
+function parseProviderConfigPayload(
+  input: unknown,
+  options: { localOnly?: boolean } = {}
+): ParseResult<SaveProviderConfigRequest> {
   if (!isRecord(input)) {
     return {
       ok: false,
@@ -793,7 +905,9 @@ function parseProviderConfigPayload(input: unknown): ParseResult<SaveProviderCon
     };
   }
 
-  const sourceOrder = parseProviderSourceOrderPayload(input.sourceOrder);
+  const sourceOrder: ParseResult<ProviderSourceId[]> = options.localOnly
+    ? { ok: true, value: [...GUEST_PROVIDER_SOURCE_ORDER] }
+    : parseProviderSourceOrderPayload(input.sourceOrder);
   if (!sourceOrder.ok) {
     return sourceOrder;
   }

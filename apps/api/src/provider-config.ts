@@ -27,6 +27,7 @@ const ACTIVE_PROVIDER_CONFIG_ID = "active";
 const CODEX_TOKEN_ROW_ID = "default";
 
 export const DEFAULT_PROVIDER_SOURCE_ORDER: ProviderSourceId[] = ["env-openai", "local-openai", "codex"];
+export const LOCAL_ONLY_PROVIDER_SOURCE_ORDER: ProviderSourceId[] = ["local-openai"];
 
 type ProviderConfigRow = typeof providerConfigs.$inferSelect;
 type CodexTokenRow = typeof codexOAuthTokens.$inferSelect;
@@ -38,10 +39,15 @@ interface ResolvedLocalConfig {
   localTimeoutMs: number | null;
 }
 
-export function getProviderConfig(): ProviderConfigResponse {
-  const row = getProviderConfigRow();
-  const sourceOrder = readSavedSourceOrder(row?.sourceOrderJson);
-  const sourcesById = new Map(providerSources(row).map((source) => [source.id, source]));
+interface ProviderConfigScope {
+  id?: string;
+  localOnly?: boolean;
+}
+
+export function getProviderConfig(scope: ProviderConfigScope = {}): ProviderConfigResponse {
+  const row = getProviderConfigRow(scope.id);
+  const sourceOrder = scope.localOnly ? [...LOCAL_ONLY_PROVIDER_SOURCE_ORDER] : readSavedSourceOrder(row?.sourceOrderJson);
+  const sourcesById = new Map(providerSources(row, scope).map((source) => [source.id, source]));
   const sources = sourceOrder.map((sourceId) => sourcesById.get(sourceId)).filter(isDefined);
   const activeSource = sources.find((source) => source.available);
 
@@ -53,17 +59,18 @@ export function getProviderConfig(): ProviderConfigResponse {
   };
 }
 
-export function saveProviderConfig(input: SaveProviderConfigRequest): ProviderConfigResponse {
-  if (!isProviderSourceOrder(input.sourceOrder)) {
+export function saveProviderConfig(input: SaveProviderConfigRequest, scope: ProviderConfigScope = {}): ProviderConfigResponse {
+  if (scope.localOnly ? !isLocalOnlyProviderSourceOrder(input.sourceOrder) : !isProviderSourceOrder(input.sourceOrder)) {
     throw new Error("Provider source order is invalid.");
   }
 
   const now = new Date().toISOString();
-  const existing = getProviderConfigRow();
+  const id = scope.id ?? ACTIVE_PROVIDER_CONFIG_ID;
+  const existing = getProviderConfigRow(id);
   const local = resolveLocalConfigForSave(input.localOpenAI, existing);
   const row: ProviderConfigRow = {
-    id: ACTIVE_PROVIDER_CONFIG_ID,
-    sourceOrderJson: JSON.stringify(input.sourceOrder),
+    id,
+    sourceOrderJson: JSON.stringify(scope.localOnly ? LOCAL_ONLY_PROVIDER_SOURCE_ORDER : input.sourceOrder),
     localApiKey: local.localApiKey,
     localBaseUrl: local.localBaseUrl,
     localModel: local.localModel,
@@ -87,11 +94,11 @@ export function saveProviderConfig(input: SaveProviderConfigRequest): ProviderCo
     })
     .run();
 
-  return getProviderConfig();
+  return getProviderConfig(scope);
 }
 
 export function getProviderSourceOrder(): ProviderSourceId[] {
-  return readSavedSourceOrder(getProviderConfigRow()?.sourceOrderJson);
+  return readSavedSourceOrder(getProviderConfigRow(ACTIVE_PROVIDER_CONFIG_ID)?.sourceOrderJson);
 }
 
 export function getEnvironmentOpenAIImageProviderConfig(): OpenAIImageProviderConfig | undefined {
@@ -110,8 +117,8 @@ export function getEnvironmentOpenAIImageProviderConfig(): OpenAIImageProviderCo
   };
 }
 
-export function getLocalOpenAIImageProviderConfig(): OpenAIImageProviderConfig | undefined {
-  const row = getProviderConfigRow();
+export function getLocalOpenAIImageProviderConfig(scope: ProviderConfigScope = {}): OpenAIImageProviderConfig | undefined {
+  const row = getProviderConfigRow(scope.id);
   const apiKey = trimToUndefined(row?.localApiKey);
   if (!apiKey) {
     return undefined;
@@ -131,17 +138,39 @@ export function isProviderSourceOrder(value: unknown): value is ProviderSourceId
   return parseProviderSourceOrder(value) !== undefined;
 }
 
+export function isLocalOnlyProviderSourceOrder(value: unknown): value is ProviderSourceId[] {
+  return Array.isArray(value) && value.length === 1 && value[0] === "local-openai";
+}
+
 export function isProviderSourceId(value: unknown): value is ProviderSourceId {
   return typeof value === "string" && (PROVIDER_SOURCE_IDS as readonly string[]).includes(value);
 }
 
-function getProviderConfigRow(): ProviderConfigRow | undefined {
-  return db.select().from(providerConfigs).where(eq(providerConfigs.id, ACTIVE_PROVIDER_CONFIG_ID)).get();
+function getProviderConfigRow(id = ACTIVE_PROVIDER_CONFIG_ID): ProviderConfigRow | undefined {
+  return db.select().from(providerConfigs).where(eq(providerConfigs.id, id)).get();
 }
 
-function providerSources(row: ProviderConfigRow | undefined): ProviderSourceView[] {
+function providerSources(row: ProviderConfigRow | undefined, scope: ProviderConfigScope): ProviderSourceView[] {
+  const localConfig = getLocalOpenAIImageProviderConfig(scope);
+  const localSource: ProviderSourceView = {
+    id: "local-openai",
+    kind: "local",
+    label: "Local OpenAI-compatible API",
+    available: Boolean(localConfig),
+    status: localConfig ? "available" : "missing_api_key",
+    details: {
+      baseUrl: row?.localBaseUrl ?? "",
+      model: trimToUndefined(row?.localModel) ?? IMAGE_MODEL,
+      timeoutMs: validTimeoutMs(row?.localTimeoutMs) ?? DEFAULT_OPENAI_IMAGE_TIMEOUT_MS
+    },
+    secret: maskedSecret(row?.localApiKey)
+  };
+
+  if (scope.localOnly) {
+    return [localSource];
+  }
+
   const envConfig = getEnvironmentOpenAIImageProviderConfig();
-  const localConfig = getLocalOpenAIImageProviderConfig();
   const codex = codexSessionView(getCodexTokenRow());
 
   return [
@@ -158,19 +187,7 @@ function providerSources(row: ProviderConfigRow | undefined): ProviderSourceView
       },
       secret: maskedSecret(process.env.OPENAI_API_KEY)
     },
-    {
-      id: "local-openai",
-      kind: "local",
-      label: "Local OpenAI-compatible API",
-      available: Boolean(localConfig),
-      status: localConfig ? "available" : "missing_api_key",
-      details: {
-        baseUrl: row?.localBaseUrl ?? "",
-        model: trimToUndefined(row?.localModel) ?? IMAGE_MODEL,
-        timeoutMs: validTimeoutMs(row?.localTimeoutMs) ?? DEFAULT_OPENAI_IMAGE_TIMEOUT_MS
-      },
-      secret: maskedSecret(row?.localApiKey)
-    },
+    localSource,
     {
       id: "codex",
       kind: "codex",

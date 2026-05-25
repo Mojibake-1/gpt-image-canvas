@@ -31,6 +31,7 @@ import { localizedApiErrorMessage, useI18n, type Locale, type Translate } from "
 interface ProviderConfigDialogProps {
   isAuthLoading: boolean;
   isCodexStarting: boolean;
+  localOnly?: boolean;
   onClose: () => void;
   onLogoutCodex: () => Promise<void>;
   onRefreshAuthStatus: () => Promise<AuthStatusResponse | null>;
@@ -61,6 +62,7 @@ const emptyLocalProviderForm: LocalProviderFormState = {
 export function ProviderConfigDialog({
   isAuthLoading,
   isCodexStarting,
+  localOnly = false,
   onClose,
   onLogoutCodex,
   onRefreshAuthStatus,
@@ -291,12 +293,18 @@ export function ProviderConfigDialog({
 
       const savedConfig = (await response.json()) as ProviderConfigResponse;
       applyProviderConfig(savedConfig);
-      await onRefreshAuthStatus();
+      if (!localOnly) {
+        await onRefreshAuthStatus();
+      }
       setMessage({
         tone: "success",
-        text: savedConfig.activeSource
-          ? t("providerConfigSavedWithSource", { source: sourceLabel(savedConfig.activeSource.id, t) })
-          : t("providerConfigSavedNoSource")
+        text: localOnly
+          ? locale === "zh-CN"
+            ? "自定义服务配置已保存。"
+            : "Custom provider settings saved."
+          : savedConfig.activeSource
+            ? t("providerConfigSavedWithSource", { source: sourceLabel(savedConfig.activeSource.id, t) })
+            : t("providerConfigSavedNoSource")
       });
     } catch (error) {
       setMessage({
@@ -351,7 +359,14 @@ export function ProviderConfigDialog({
             </div>
           ) : null}
 
-          <section className="provider-config-priority" aria-labelledby="provider-priority-title">
+          {localOnly ? (
+            <p className="provider-priority-note">
+              {locale === "zh-CN" ? "Guest 模式下仅开放自定义本地 API 配置。" : "Guest mode allows custom local API configuration only."}
+            </p>
+          ) : null}
+
+          {!localOnly ? (
+            <section className="provider-config-priority" aria-labelledby="provider-priority-title">
             <div className="provider-section-heading">
               <div>
                 <p>{t("providerFallbackOrder")}</p>
@@ -421,19 +436,22 @@ export function ProviderConfigDialog({
             <p className="provider-priority-note">
               {t("providerPriorityNote")}
             </p>
-          </section>
+            </section>
+          ) : null}
 
           <div className="provider-detail-grid">
-            <section className="provider-detail-card" data-testid="provider-env-section" aria-labelledby="provider-env-title">
-              <ProviderDetailHeader source={envSource} sourceId="env-openai" titleId="provider-env-title" />
-              <dl className="provider-readonly-grid">
-                <ReadonlyRow label="API Key" value={envSource?.secret.value ?? (envSource?.secret.hasSecret ? t("commonSaved") : t("commonNotSet"))} masked />
-                <ReadonlyRow label={t("providerFieldBaseUrl")} value={envSource?.details.baseUrl || t("providerApiOfficial")} />
-                <ReadonlyRow label={t("providerFieldModel")} value={envSource?.details.model || "gpt-image-2"} />
-                <ReadonlyRow label={t("providerFieldTimeout")} value={formatTimeout(envSource?.details.timeoutMs, t)} />
-              </dl>
-              <p className="provider-card-hint">{t("providerCardEnvHint")}</p>
-            </section>
+            {!localOnly ? (
+              <section className="provider-detail-card" data-testid="provider-env-section" aria-labelledby="provider-env-title">
+                <ProviderDetailHeader source={envSource} sourceId="env-openai" titleId="provider-env-title" />
+                <dl className="provider-readonly-grid">
+                  <ReadonlyRow label="API Key" value={envSource?.secret.value ?? (envSource?.secret.hasSecret ? t("commonSaved") : t("commonNotSet"))} masked />
+                  <ReadonlyRow label={t("providerFieldBaseUrl")} value={envSource?.details.baseUrl || t("providerApiOfficial")} />
+                  <ReadonlyRow label={t("providerFieldModel")} value={envSource?.details.model || "gpt-image-2"} />
+                  <ReadonlyRow label={t("providerFieldTimeout")} value={formatTimeout(envSource?.details.timeoutMs, t)} />
+                </dl>
+                <p className="provider-card-hint">{t("providerCardEnvHint")}</p>
+              </section>
+            ) : null}
 
             <section className="provider-detail-card" data-testid="provider-local-section" aria-labelledby="provider-local-title">
               <ProviderDetailHeader source={localSource} sourceId="local-openai" titleId="provider-local-title" />
@@ -497,35 +515,37 @@ export function ProviderConfigDialog({
               <p className="provider-card-hint">{t("providerCardLocalHint")}</p>
             </section>
 
-            <section className="provider-detail-card" data-testid="provider-codex-section" aria-labelledby="provider-codex-title">
-              <ProviderDetailHeader source={codexSource} sourceId="codex" titleId="provider-codex-title" />
-              <dl className="provider-readonly-grid">
-                <ReadonlyRow label={t("providerFieldAccount")} value={codex?.email ?? codex?.accountId ?? t("providerLoggedOut")} />
-                <ReadonlyRow label={t("providerFieldAvailability")} value={codex?.available ? t("providerStatusCodexCopy") : t("providerSourceMissingCodex")} />
-                <ReadonlyRow label={t("providerFieldExpiresAt")} value={formatOptionalDateTime(codex?.expiresAt, formatLocaleDateTime, t)} />
-                <ReadonlyRow label={t("providerFieldRefreshedAt")} value={formatOptionalDateTime(codex?.refreshedAt, formatLocaleDateTime, t)} />
-                <ReadonlyRow label={t("providerFieldReason")} value={codex?.unavailableReason || (codex?.available ? t("providerNoReason") : t("providerSourceMissingCodex"))} />
-              </dl>
-              <div className="provider-codex-actions">
-                {codex?.available ? (
-                  <button className="secondary-action h-10" disabled={isAuthLoading} data-testid="provider-codex-logout" type="button" onClick={() => void handleLogoutCodex()}>
-                    {isAuthLoading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <LogOut className="size-4" aria-hidden="true" />}
-                    {t("providerLogoutCodex")}
-                  </button>
-                ) : (
-                  <button
-                    className="secondary-action h-10"
-                    disabled={isAuthLoading || isCodexStarting}
-                    data-testid="provider-codex-login"
-                    type="button"
-                    onClick={handleStartCodexLogin}
-                  >
-                    {isCodexStarting ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <KeyRound className="size-4" aria-hidden="true" />}
-                    {t("providerLoginCodex")}
-                  </button>
-                )}
-              </div>
-            </section>
+            {!localOnly ? (
+              <section className="provider-detail-card" data-testid="provider-codex-section" aria-labelledby="provider-codex-title">
+                <ProviderDetailHeader source={codexSource} sourceId="codex" titleId="provider-codex-title" />
+                <dl className="provider-readonly-grid">
+                  <ReadonlyRow label={t("providerFieldAccount")} value={codex?.email ?? codex?.accountId ?? t("providerLoggedOut")} />
+                  <ReadonlyRow label={t("providerFieldAvailability")} value={codex?.available ? t("providerStatusCodexCopy") : t("providerSourceMissingCodex")} />
+                  <ReadonlyRow label={t("providerFieldExpiresAt")} value={formatOptionalDateTime(codex?.expiresAt, formatLocaleDateTime, t)} />
+                  <ReadonlyRow label={t("providerFieldRefreshedAt")} value={formatOptionalDateTime(codex?.refreshedAt, formatLocaleDateTime, t)} />
+                  <ReadonlyRow label={t("providerFieldReason")} value={codex?.unavailableReason || (codex?.available ? t("providerNoReason") : t("providerSourceMissingCodex"))} />
+                </dl>
+                <div className="provider-codex-actions">
+                  {codex?.available ? (
+                    <button className="secondary-action h-10" disabled={isAuthLoading} data-testid="provider-codex-logout" type="button" onClick={() => void handleLogoutCodex()}>
+                      {isAuthLoading ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <LogOut className="size-4" aria-hidden="true" />}
+                      {t("providerLogoutCodex")}
+                    </button>
+                  ) : (
+                    <button
+                      className="secondary-action h-10"
+                      disabled={isAuthLoading || isCodexStarting}
+                      data-testid="provider-codex-login"
+                      type="button"
+                      onClick={handleStartCodexLogin}
+                    >
+                      {isCodexStarting ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <KeyRound className="size-4" aria-hidden="true" />}
+                      {t("providerLoginCodex")}
+                    </button>
+                  )}
+                </div>
+              </section>
+            ) : null}
           </div>
         </div>
 

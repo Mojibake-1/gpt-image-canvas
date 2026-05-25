@@ -1,21 +1,14 @@
 import { getCodexResponsesBaseURL, getValidCodexSession } from "./codex-auth.js";
 import type { CodexAccessSession } from "./codex-auth.js";
-import {
-  createCodexImageProvider,
-  getCodexImageProviderTimeoutMs
-} from "./codex-image-provider.js";
+import { createCodexImageProvider, getCodexImageProviderTimeoutMs } from "./codex-image-provider.js";
 import {
   ProviderError,
   createOpenAIImageProvider,
   getConfiguredImageModel,
-  type OpenAIImageProviderConfig,
-  type ImageProvider
+  type ImageProvider,
+  type OpenAIImageProviderConfig
 } from "./image-provider.js";
-import {
-  getEnvironmentOpenAIImageProviderConfig,
-  getLocalOpenAIImageProviderConfig,
-  getProviderSourceOrder
-} from "./provider-config.js";
+import { getEnvironmentOpenAIImageProviderConfig, getLocalOpenAIImageProviderConfig, getProviderSourceOrder } from "./provider-config.js";
 import type { ProviderSourceId, RuntimeImageProvider } from "./contracts.js";
 
 export interface ConfiguredImageProviderSelection {
@@ -25,8 +18,28 @@ export interface ConfiguredImageProviderSelection {
   codexSession?: CodexAccessSession;
 }
 
-export async function createConfiguredImageProvider(signal?: AbortSignal): Promise<ImageProvider> {
-  const selection = await selectConfiguredImageProviderSource(signal);
+export interface CreateConfiguredImageProviderOptions {
+  signal?: AbortSignal;
+  sourceOrder?: readonly ProviderSourceId[];
+  localConfigId?: string;
+  missingProviderMessage?: string;
+}
+
+interface SelectConfiguredImageProviderSourceOptions {
+  signal?: AbortSignal;
+  sourceOrder?: readonly ProviderSourceId[];
+  localConfigId?: string;
+}
+
+const defaultMissingProviderMessage =
+  "No generation provider is available. Configure a local OpenAI-compatible API key or sign in with Codex.";
+
+export async function createConfiguredImageProvider(options: CreateConfiguredImageProviderOptions = {}): Promise<ImageProvider> {
+  const selection = await selectConfiguredImageProviderSource({
+    localConfigId: options.localConfigId,
+    signal: options.signal,
+    sourceOrder: options.sourceOrder
+  });
 
   if (selection?.openAIConfig) {
     return createOpenAIImageProvider(selection.openAIConfig);
@@ -41,17 +54,15 @@ export async function createConfiguredImageProvider(signal?: AbortSignal): Promi
     });
   }
 
-  throw new ProviderError(
-    "missing_provider",
-    "服务器没有配置 OPENAI_API_KEY，也没有可用的 Codex 登录会话。请先登录 Codex 后重试。",
-    401
-  );
+  throw new ProviderError("missing_provider", options.missingProviderMessage ?? defaultMissingProviderMessage, 401);
 }
 
 export async function selectConfiguredImageProviderSource(
-  signal?: AbortSignal
+  options: SelectConfiguredImageProviderSourceOptions = {}
 ): Promise<ConfiguredImageProviderSelection | undefined> {
-  for (const sourceId of getProviderSourceOrder()) {
+  const sourceOrder = options.sourceOrder?.length ? options.sourceOrder : getProviderSourceOrder();
+
+  for (const sourceId of sourceOrder) {
     if (sourceId === "env-openai") {
       const openAIConfig = getEnvironmentOpenAIImageProviderConfig();
       if (openAIConfig) {
@@ -65,7 +76,7 @@ export async function selectConfiguredImageProviderSource(
     }
 
     if (sourceId === "local-openai") {
-      const openAIConfig = getLocalOpenAIImageProviderConfig();
+      const openAIConfig = getLocalOpenAIImageProviderConfig({ id: options.localConfigId });
       if (openAIConfig) {
         return {
           sourceId,
@@ -76,7 +87,7 @@ export async function selectConfiguredImageProviderSource(
       continue;
     }
 
-    const codexSession = await getValidCodexSession(signal);
+    const codexSession = await getValidCodexSession(options.signal);
     if (codexSession) {
       return {
         sourceId,
