@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.3.0 - 2026-05-05
+
+Agent canvas generation release.
+
+### Added
+
+- Agent tab for turning natural-language image requests into strict, reviewable `GenerationPlan` objects.
+- Separate OpenAI-compatible Agent LLM configuration with local masked API-key storage, Base URL, model, timeout, and `supportsVision`.
+- WebSocket Agent run protocol for streaming assistant output, reasoning/thinking deltas, plan creation, plan updates, job progress, asset previews, cancellation, and completion.
+- Agent plan node shape on the canvas with job lists, dependencies, output counts, status, thumbnails, detailed job inspection, and plan actions.
+- DAG-based Agent executor for parallel independent jobs, generated-output dependencies, selected canvas references, cancel-on-disconnect behavior, and retrying failed or blocked jobs while preserving successful upstream outputs.
+- Agent smoke checks for planner validation, configuration/WebSocket flow, and executor orchestration.
+
+### Changed
+
+- Reference-image generation now supports up to three references per request and records multiple reference asset IDs.
+- Provider configuration now supports saved local OpenAI-compatible credentials and reorderable provider priority across environment OpenAI, local OpenAI, and Codex sources.
+- Canvas, Gallery, provider configuration, and Agent UI now share the bilingual i18n layer.
+- Agent planner streaming and transcript layout were refined so plans, direct assistant output, and inspectable reasoning are easier to follow during a live run.
+
 ## v0.2.0 - 2026-05-01
 
 Credential-aware homepage and Codex login release.

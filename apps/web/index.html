@@ -3,7 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -14,6 +16,41 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (() => {
+        const cryptoObject = globalThis.crypto;
+        if (cryptoObject && typeof cryptoObject.randomUUID === "function") {
+          return;
+        }
+
+        const randomUUID = () => {
+          const bytes = new Uint8Array(16);
+          if (cryptoObject && typeof cryptoObject.getRandomValues === "function") {
+            cryptoObject.getRandomValues(bytes);
+          } else {
+            for (let index = 0; index < bytes.length; index += 1) {
+              bytes[index] = Math.floor(Math.random() * 256);
+            }
+          }
+
+          bytes[6] = (bytes[6] & 0x0f) | 0x40;
+          bytes[8] = (bytes[8] & 0x3f) | 0x80;
+          const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"));
+          return `${hex[0]}${hex[1]}${hex[2]}${hex[3]}-${hex[4]}${hex[5]}-${hex[6]}${hex[7]}-${hex[8]}${hex[9]}-${hex[10]}${hex[11]}${hex[12]}${hex[13]}${hex[14]}${hex[15]}`;
+        };
+
+        if (cryptoObject) {
+          try {
+            Object.defineProperty(cryptoObject, "randomUUID", {
+              configurable: true,
+              value: randomUUID
+            });
+          } catch {
+            cryptoObject.randomUUID = randomUUID;
+          }
+        }
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
