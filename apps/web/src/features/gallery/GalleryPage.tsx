@@ -30,6 +30,7 @@ import {
 import { localizedApiErrorMessage, useI18n, type Locale, type Translate } from "../../shared/i18n";
 import { assetDownloadUrl, assetPreviewUrl } from "../../shared/api/assets";
 import { writeClipboardText } from "../../shared/clipboard";
+import { apiFetch, withEmbeddedSessionToken } from "../canvas/embed-session";
 
 interface GalleryPageProps {
   onDeleted: (outputId: string) => void;
@@ -75,7 +76,7 @@ export function GalleryPage({ onDeleted, onReuse }: GalleryPageProps) {
       setError("");
 
       try {
-        const response = await fetch("/api/gallery", {
+        const response = await apiFetch("/api/gallery", {
           signal: controller.signal
         });
         if (!response.ok) {
@@ -246,7 +247,7 @@ export function GalleryPage({ onDeleted, onReuse }: GalleryPageProps) {
     setError("");
 
     try {
-      const response = await fetch("/api/gallery/export", {
+      const response = await apiFetch("/api/gallery/export", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -295,7 +296,7 @@ export function GalleryPage({ onDeleted, onReuse }: GalleryPageProps) {
   }
 
   function downloadItem(item: GalleryImageItem): void {
-    window.open(assetDownloadUrl(item.asset.id), "_blank", "noopener,noreferrer");
+    window.open(withEmbeddedSessionToken(assetDownloadUrl(item.asset.id)), "_blank", "noopener,noreferrer");
     showStatus(t("galleryOpenDownload"));
   }
 
@@ -309,7 +310,7 @@ export function GalleryPage({ onDeleted, onReuse }: GalleryPageProps) {
     setError("");
 
     try {
-      const response = await fetch(`/api/gallery/${encodeURIComponent(item.outputId)}`, {
+      const response = await apiFetch(`/api/gallery/${encodeURIComponent(item.outputId)}`, {
         method: "DELETE"
       });
       if (!response.ok) {
@@ -567,7 +568,7 @@ function FeaturedGalleryItem({
             alt={item.prompt}
             className="gallery-feature__image"
             height={item.asset.height}
-            src={assetPreviewUrl(item.asset.id, 1024)}
+                        src={withEmbeddedSessionToken(assetPreviewUrl(item.asset.id, 1024))}
             width={item.asset.width}
           />
           <span className="gallery-feature__badge">{t("galleryBadgeLatest")}</span>
@@ -651,7 +652,7 @@ function GalleryCard({
             className="gallery-card__image"
             height={item.asset.height}
             loading="lazy"
-            src={assetPreviewUrl(item.asset.id, 512)}
+                        src={withEmbeddedSessionToken(assetPreviewUrl(item.asset.id, 512))}
             width={item.asset.width}
           />
           <span className="gallery-card__zoom">

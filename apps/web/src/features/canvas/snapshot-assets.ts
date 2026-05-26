@@ -1,4 +1,5 @@
 import type { GeneratedAsset } from "@gpt-image-canvas/shared";
+import { apiFetch } from "./embed-session";
 
 export interface CanvasDataUrlAssetUploadInput {
   dataUrl: string;
@@ -19,7 +20,7 @@ type SnapshotStoreLocation =
     };
 
 export async function uploadCanvasDataUrlAsset(input: CanvasDataUrlAssetUploadInput): Promise<GeneratedAsset | undefined> {
-  const response = await fetch("/api/assets", {
+  const response = await apiFetch("/api/assets", {
     method: "POST",
     headers: {
       "Content-Type": "application/json"

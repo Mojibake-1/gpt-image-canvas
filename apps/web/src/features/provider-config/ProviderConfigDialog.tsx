@@ -29,6 +29,7 @@ import {
   type SaveProviderConfigRequest
 } from "@gpt-image-canvas/shared";
 import { localizedApiErrorMessage, useI18n, type Locale, type Translate } from "../../shared/i18n";
+import { apiFetch } from "../canvas/embed-session";
 
 interface ProviderConfigDialogProps {
   isAuthLoading: boolean;
@@ -126,7 +127,7 @@ export function ProviderConfigDialog({
       setMessage(null);
 
       try {
-        const response = await fetch("/api/provider-config", { signal });
+        const response = await apiFetch("/api/provider-config", { signal });
         if (!response.ok) {
           throw new Error(await readProviderConfigError(response, locale, t));
         }
@@ -161,7 +162,7 @@ export function ProviderConfigDialog({
       setMessage(null);
 
       try {
-        const response = await fetch("/api/agent-config", { signal });
+        const response = await apiFetch("/api/agent-config", { signal });
         if (!response.ok) {
           throw new Error(await readProviderConfigError(response, locale, t));
         }
@@ -402,7 +403,7 @@ export function ProviderConfigDialog({
       : null;
 
     try {
-      const response = await fetch("/api/provider-config", {
+      const response = await apiFetch("/api/provider-config", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json"
@@ -416,7 +417,7 @@ export function ProviderConfigDialog({
       const savedConfig = (await response.json()) as ProviderConfigResponse;
       let savedAgentConfig: AgentLlmConfigView | null = null;
       if (agentBody) {
-        const agentResponse = await fetch("/api/agent-config", {
+        const agentResponse = await apiFetch("/api/agent-config", {
           method: "PUT",
           headers: {
             "Content-Type": "application/json"
@@ -440,7 +441,7 @@ export function ProviderConfigDialog({
         tone: "success",
         text: localOnly
           ? locale === "zh-CN"
-            ? "???????????"
+            ? "自定义 Provider 设置已保存。"
             : "Custom provider settings saved."
           : savedConfig.activeSource
             ? t("providerConfigSavedWithSource", { source: sourceLabel(savedConfig.activeSource.id, t) })
@@ -576,7 +577,7 @@ export function ProviderConfigDialog({
 
               {localOnly ? (
                 <p className="provider-priority-note">
-                  {locale === "zh-CN" ? "Guest ??????????? API ???" : "Guest mode allows custom local API configuration only."}
+                  {locale === "zh-CN" ? "Guest 模式仅支持自定义本地 API 配置。" : "Guest mode allows custom local API configuration only."}
                 </p>
               ) : null}
 

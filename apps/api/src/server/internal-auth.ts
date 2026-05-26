@@ -5,15 +5,16 @@ import { errorResponse } from "./http/errors.js";
 import { readJson } from "./http/json.js";
 
 const INTERNAL_AUTH_COOKIE = "muxing_canvas_user";
+const INTERNAL_AUTH_QUERY = "muxing_session";
 const INTERNAL_EMAIL_PATTERN = /^[^@\s]+@muxing\.cfd$/u;
 const INTERNAL_GUEST_EMAIL_PATTERN = /^guest\+[0-9a-f-]+@muxing\.cfd$/u;
 const INTERNAL_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
-const GUEST_ONLY_PROVIDER_MESSAGE = "Guest ?????????? API ???";
+const GUEST_ONLY_PROVIDER_MESSAGE = "Guest 访客模式不能访问这个 API。";
 
 export function registerInternalAuthRoutes(app: Hono): void {
   app.get("/api/internal-session", (c) => {
     const email = getInternalUserEmail(c);
-    return c.json(email ? { authenticated: true, email, isGuest: isGuestUserEmail(email) } : { authenticated: false });
+    return c.json(email ? createInternalSessionResponse(email) : { authenticated: false });
   });
 
   app.post("/api/internal-login", async (c) => {
@@ -24,19 +25,19 @@ export function registerInternalAuthRoutes(app: Hono): void {
 
     const email = parseInternalLoginEmail(payload.value);
     if (!email || isGuestUserEmail(email)) {
-      return c.json(errorResponse("forbidden_email", "??? @muxing.cfd ?????"), 403);
+      return c.json(errorResponse("forbidden_email", "请输入 @muxing.cfd 邮箱地址。"), 403);
     }
 
     ensureProjectForOwner(email);
     c.header("Set-Cookie", createInternalAuthCookie(c, email));
-    return c.json({ authenticated: true, email, isGuest: false });
+    return c.json(createInternalSessionResponse(email));
   });
 
   app.post("/api/guest-login", (c) => {
     const email = createGuestUserEmail();
     ensureProjectForOwner(email);
     c.header("Set-Cookie", createInternalAuthCookie(c, email));
-    return c.json({ authenticated: true, email, isGuest: true });
+    return c.json(createInternalSessionResponse(email));
   });
 
   app.post("/api/internal-logout", (c) => {
@@ -59,7 +60,11 @@ export function requireInternalUserEmail(c: Context): string {
 }
 
 export function getInternalUserEmail(c: Context): string | undefined {
-  return normalizeInternalEmail(getCookieValue(c.req.header("cookie"), INTERNAL_AUTH_COOKIE));
+  return (
+    normalizeInternalEmail(getCookieValue(c.req.header("cookie"), INTERNAL_AUTH_COOKIE)) ??
+    emailFromSessionToken(readBearerToken(c.req.header("authorization"))) ??
+    emailFromSessionToken(c.req.query(INTERNAL_AUTH_QUERY))
+  );
 }
 
 export function isGuestUserEmail(email: string): boolean {
@@ -77,7 +82,7 @@ export function forbiddenForGuest(c: Context): Response {
 
 function requireInternalSession(c: Context, next: Next): Response | Promise<Response | void> {
   if (!getInternalUserEmail(c)) {
-    return c.json(errorResponse("unauthorized", "???? @muxing.cfd ?????"), 401);
+    return c.json(errorResponse("unauthorized", "请先登录 @muxing.cfd 邮箱。"), 401);
   }
 
   return next();
@@ -124,6 +129,40 @@ function getCookieValue(header: string | undefined, name: string): string | unde
 
 function createInternalAuthCookie(c: Context, email: string): string {
   return serializeInternalAuthCookie(c, encodeURIComponent(email), INTERNAL_SESSION_MAX_AGE_SECONDS);
+}
+
+function createInternalSessionResponse(email: string): { authenticated: true; email: string; isGuest: boolean; sessionToken: string } {
+  return {
+    authenticated: true,
+    email,
+    isGuest: isGuestUserEmail(email),
+    sessionToken: createInternalSessionToken(email)
+  };
+}
+
+function createInternalSessionToken(email: string): string {
+  return Buffer.from(email, "utf8").toString("base64url");
+}
+
+function emailFromSessionToken(token: string | undefined): string | undefined {
+  if (!token) {
+    return undefined;
+  }
+
+  try {
+    return normalizeInternalEmail(Buffer.from(token, "base64url").toString("utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+function readBearerToken(header: string | undefined): string | undefined {
+  if (!header) {
+    return undefined;
+  }
+
+  const match = /^Bearer\s+(.+)$/iu.exec(header.trim());
+  return match?.[1]?.trim();
 }
 
 function clearInternalAuthCookie(c: Context): string {

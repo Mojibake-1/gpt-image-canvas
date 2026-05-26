@@ -56,6 +56,7 @@ import {
   GenerationPlaceholderShapeUtil,
   type GenerationPlaceholderShape
 } from "./GenerationPlaceholderShape";
+import { loginEmailForSession, resetLoginEmail } from "./login-email-state";
 import {
   AGENT_PLAN_NODE_TYPE,
   AgentPlanNodeShapeUtil,
@@ -66,6 +67,14 @@ import {
 } from "../agent/AgentPlanNodeShape";
 import { AgentSkillDialog } from "../agent/AgentSkillDialog";
 import { InternalLoginScreen, type InternalSessionResponse } from "./InternalLoginScreen";
+import { UnauthorizedSessionError, createApiError } from "./api-errors";
+import {
+  apiFetch,
+  clearEmbeddedSessionToken,
+  ensureEmbeddedStorageAccess,
+  rememberEmbeddedSessionToken,
+  withEmbeddedSessionToken
+} from "./embed-session";
 import { ProviderConfigDialog } from "../provider-config/ProviderConfigDialog";
 import {
   AUTO_SIZE_FALLBACK,
@@ -1191,7 +1200,7 @@ async function preloadGenerationRecordPreviews(record: GenerationRecord, signal:
 
 async function preloadGeneratedAssetPreview(asset: GeneratedAsset, signal: AbortSignal): Promise<void> {
   try {
-    await preloadImageUrl(assetPreviewUrl(asset.id, GENERATED_ASSET_INITIAL_PREVIEW_WIDTH), signal);
+    await preloadImageUrl(withEmbeddedSessionToken(assetPreviewUrl(asset.id, GENERATED_ASSET_INITIAL_PREVIEW_WIDTH)), signal);
   } catch (error) {
     if (signal.aborted) {
       throw error;
@@ -1618,7 +1627,7 @@ function resolveCanvasAssetUrl(asset: TLAsset, context: TLAssetContext): string 
     previewWidthForAssetContext(asset, context),
     initialCanvasPreviewWidths.get(localAssetId) ?? ASSET_PREVIEW_WIDTHS[0]
   );
-  return assetPreviewUrl(localAssetId, previewWidth);
+  return withEmbeddedSessionToken(assetPreviewUrl(localAssetId, previewWidth));
 }
 
 function previewWidthForAssetContext(asset: Extract<TLAsset, { type: "image" }>, context: TLAssetContext): AssetPreviewWidth {
@@ -1848,7 +1857,7 @@ async function fetchAssetMetadata(assetId: string): Promise<ImageSize | undefine
     return existingRequest;
   }
 
-  const request = fetch(`/api/assets/${encodeURIComponent(assetId)}/metadata`)
+  const request = apiFetch(`/api/assets/${encodeURIComponent(assetId)}/metadata`)
     .then(async (response) => {
       if (!response.ok) {
         return undefined;
@@ -1986,7 +1995,7 @@ async function readReferenceImage(selection: ReferenceSelectionItem, signal: Abo
 }
 
 async function readStoredReferenceImage(assetId: string, signal: AbortSignal, t: Translate): Promise<ReferenceImageInput> {
-  const response = await fetch(`/api/assets/${encodeURIComponent(assetId)}`, { signal });
+  const response = await apiFetch(`/api/assets/${encodeURIComponent(assetId)}`, { signal });
   if (!response.ok) {
     throw new Error(t("readStoredReferenceFailed"));
   }
@@ -2017,7 +2026,7 @@ function agentWebSocketUrl(connectionId?: string | null, runId?: string | null, 
   if (conversationId) {
     url.searchParams.set("conversationId", conversationId);
   }
-  return url.toString();
+  return withEmbeddedSessionToken(url.toString());
 }
 
 function agentReferenceAssetId(reference: ReferenceSelectionItem, index: number): string {
@@ -2430,21 +2439,6 @@ function AgentHistoryMessage({
   );
 }
 
-async function readErrorMessage(response: Response, locale: Locale, t: Translate): Promise<string> {
-  try {
-    const body = (await response.json()) as { error?: { code?: string; message?: string } };
-    return localizedApiErrorMessage({
-      code: body.error?.code,
-      fallbackMessage: body.error?.message,
-      fallbackText: t("errorFallback", { status: response.status }),
-      locale,
-      status: response.status
-    });
-  } catch {
-    return t("errorFallback", { status: response.status });
-  }
-}
-
 function storageConfigToForm(config: StorageConfigResponse | null): StorageConfigFormState {
   if (!config) {
     return cloneDefaultStorageConfigForm();
@@ -2472,6 +2466,10 @@ function storageConfigToForm(config: StorageConfigResponse | null): StorageConfi
       forcePathStyle: config.s3.forcePathStyle
     }
   };
+}
+
+async function readErrorMessage(response: Response, locale: Locale, t: Translate): Promise<string> {
+  return (await createApiError(response, locale, t)).message;
 }
 
 function storageConfigRequestBody(
@@ -3066,14 +3064,35 @@ export function App() {
   const hiddenHistoryCount = Math.max(0, generationHistory.length - HISTORY_COLLAPSED_LIMIT);
   const hasAdditionalHistory = hiddenHistoryCount > 0;
   const isExtendedCountSelected = EXTENDED_GENERATION_COUNTS.includes(count);
+  const resetToLoginScreen = useCallback((message: string): void => {
+    clearEmbeddedSessionToken();
+    setLoginEmail((current) => resetLoginEmail(current));
+    setInternalUserEmail(null);
+    setIsGuestSession(false);
+    setLoginError(message);
+    setIsInternalSessionLoading(false);
+    setIsInternalLoginSubmitting(false);
+    setAuthStatus(null);
+    setAuthError("");
+    setAgentConfig(null);
+    setAgentConfigError("");
+  }, []);
+  const handleUnauthorizedSessionError = useCallback((error: unknown): boolean => {
+    if (!(error instanceof UnauthorizedSessionError)) {
+      return false;
+    }
+
+    resetToLoginScreen(error.message);
+    return true;
+  }, [resetToLoginScreen]);
   const loadAgentConfig = useCallback(async (signal?: AbortSignal): Promise<AgentLlmConfigView | null> => {
     setIsAgentConfigLoading(true);
     setAgentConfigError("");
 
     try {
-      const response = await fetch("/api/agent-config", { signal });
+      const response = await apiFetch("/api/agent-config", { signal });
       if (!response.ok) {
-        throw new Error(await readErrorMessage(response, locale, t));
+        throw await createApiError(response, locale, t);
       }
 
       const config = (await response.json()) as AgentLlmConfigView;
@@ -3082,6 +3101,14 @@ export function App() {
       }
       return config;
     } catch (error) {
+      if (signal?.aborted) {
+        return null;
+      }
+
+      if (handleUnauthorizedSessionError(error)) {
+        return null;
+      }
+
       if (!signal?.aborted) {
         setAgentConfigError(error instanceof Error ? error.message : t("agentConfigLoadFailed"));
       }
@@ -3097,9 +3124,9 @@ export function App() {
     setAuthError("");
 
     try {
-      const response = await fetch("/api/auth/status", { signal });
+      const response = await apiFetch("/api/auth/status", { signal });
       if (!response.ok) {
-        throw new Error(await readErrorMessage(response, locale, t));
+        throw await createApiError(response, locale, t);
       }
 
       const status = (await response.json()) as AuthStatusResponse;
@@ -3110,6 +3137,10 @@ export function App() {
         return null;
       }
 
+      if (handleUnauthorizedSessionError(error)) {
+        return null;
+      }
+
       setAuthError(error instanceof Error ? error.message : t("authStatusLoadFailed"));
       return null;
     } finally {
@@ -3117,7 +3148,7 @@ export function App() {
         setIsAuthLoading(false);
       }
     }
-  }, [locale, t]);
+  }, [handleUnauthorizedSessionError, locale, t]);
 
   const saveProjectSnapshot = useCallback(async (editor: Editor): Promise<void> => {
     const requestId = saveRequestRef.current + 1;
@@ -3126,7 +3157,7 @@ export function App() {
     setSaveError("");
 
     try {
-      const response = await fetch("/api/project", {
+      const response = await apiFetch("/api/project", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json"
@@ -3252,7 +3283,7 @@ export function App() {
       setLoginError("");
 
       try {
-        const response = await fetch("/api/internal-session", { signal: controller.signal });
+        const response = await apiFetch("/api/internal-session", { signal: controller.signal });
         if (!response.ok) {
           throw new Error(`Session check failed with ${response.status}`);
         }
@@ -3260,17 +3291,21 @@ export function App() {
         const session = (await response.json()) as InternalSessionResponse;
         if (!controller.signal.aborted) {
           const nextEmail = session.authenticated && session.email ? session.email : null;
+          if (nextEmail) {
+            rememberEmbeddedSessionToken(session);
+          } else {
+            clearEmbeddedSessionToken();
+          }
           setInternalUserEmail(nextEmail);
           setIsGuestSession(Boolean(nextEmail && session.isGuest));
-          if (session.email) {
-            setLoginEmail(session.email);
-          }
+          setLoginEmail(loginEmailForSession(session));
         }
       } catch {
         if (!controller.signal.aborted) {
+          setLoginEmail((current) => resetLoginEmail(current));
           setInternalUserEmail(null);
           setIsGuestSession(false);
-          setLoginError("????????????????");
+          setLoginError("无法检查登录状态，请稍后重试。");
         }
       } finally {
         if (!controller.signal.aborted) {
@@ -3302,12 +3337,12 @@ export function App() {
       setSaveError("");
 
       try {
-        const response = await fetch("/api/project", {
+        const response = await apiFetch("/api/project", {
           signal: controller.signal
         });
 
         if (!response.ok) {
-          throw new Error(`Project load failed with ${response.status}`);
+          throw await createApiError(response, locale, t);
         }
 
         const project = (await response.json()) as ProjectState;
@@ -3317,8 +3352,12 @@ export function App() {
         }
         setGenerationHistory(project.history);
         setSaveStatus("saved");
-      } catch {
+      } catch (error) {
         if (controller.signal.aborted) {
+          return;
+        }
+
+        if (handleUnauthorizedSessionError(error)) {
           return;
         }
 
@@ -3336,7 +3375,7 @@ export function App() {
     return () => {
       controller.abort();
     };
-  }, [internalUserEmail, isGuestSession, t]);
+  }, [handleUnauthorizedSessionError, internalUserEmail, isGuestSession, locale, t]);
 
   useEffect(() => {
     if (!internalUserEmail || isGuestSession) {
@@ -3414,7 +3453,7 @@ export function App() {
 
     async function loadStorageConfig(): Promise<void> {
       try {
-        const response = await fetch("/api/storage/config", {
+        const response = await apiFetch("/api/storage/config", {
           signal: controller.signal
         });
         if (!response.ok) {
@@ -3491,7 +3530,7 @@ export function App() {
     setAuthError("");
 
     try {
-      const response = await fetch("/api/auth/codex/device/start", {
+      const response = await apiFetch("/api/auth/codex/device/start", {
         method: "POST"
       });
       if (!response.ok) {
@@ -3513,7 +3552,7 @@ export function App() {
 
   async function pollCodexLogin(device: CodexDeviceStartResponse): Promise<void> {
     try {
-      const response = await fetch("/api/auth/codex/device/poll", {
+        const response = await apiFetch("/api/auth/codex/device/poll", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -3580,7 +3619,7 @@ export function App() {
     setAuthError("");
 
     try {
-      const response = await fetch("/api/auth/codex/logout", {
+      const response = await apiFetch("/api/auth/codex/logout", {
         method: "POST"
       });
       if (!response.ok) {
@@ -3655,7 +3694,7 @@ export function App() {
     setStorageMessage("");
 
     try {
-      const response = await fetch("/api/storage/config/test", {
+      const response = await apiFetch("/api/storage/config/test", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -3692,7 +3731,7 @@ export function App() {
     setStorageMessage("");
 
     try {
-      const response = await fetch("/api/storage/config", {
+      const response = await apiFetch("/api/storage/config", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json"
@@ -3897,7 +3936,7 @@ export function App() {
   }
 
   async function fetchGenerationRecord(recordId: string, signal: AbortSignal): Promise<GenerationRecord> {
-    const response = await fetch(`/api/generations/${encodeURIComponent(recordId)}`, {
+    const response = await apiFetch(`/api/generations/${encodeURIComponent(recordId)}`, {
       signal
     });
 
@@ -4095,7 +4134,7 @@ export function App() {
         }
       }
 
-      const response = await fetch(requestMode === "reference" ? "/api/images/edit" : "/api/images/generate", {
+      const response = await apiFetch(requestMode === "reference" ? "/api/images/edit" : "/api/images/generate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -4309,7 +4348,7 @@ export function App() {
       return;
     }
 
-    window.open(assetDownloadUrl(asset.id), "_blank", "noopener,noreferrer");
+    window.open(withEmbeddedSessionToken(assetDownloadUrl(asset.id)), "_blank", "noopener,noreferrer");
     setGenerationMessage(t("generationDownloadOpened"));
   }
 
@@ -4384,7 +4423,7 @@ export function App() {
     setGenerationWarning("");
 
     try {
-      const response = await fetch(`/api/generations/${encodeURIComponent(requestId)}/cancel`, {
+      const response = await apiFetch(`/api/generations/${encodeURIComponent(requestId)}/cancel`, {
         method: "POST"
       });
 
@@ -4434,7 +4473,7 @@ export function App() {
     agentHistorySaveRequestRef.current = requestId;
 
     try {
-      const response = await fetch(`/api/agent-conversations/${encodeURIComponent(conversationId)}`, {
+      const response = await apiFetch(`/api/agent-conversations/${encodeURIComponent(conversationId)}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json"
@@ -4464,7 +4503,7 @@ export function App() {
     setAgentHistoryError("");
 
     try {
-      const response = await fetch("/api/agent-conversations", { signal });
+      const response = await apiFetch("/api/agent-conversations", { signal });
       if (!response.ok) {
         throw new Error(`Agent history load failed with ${response.status}`);
       }
@@ -4501,7 +4540,7 @@ export function App() {
     setAgentHistoryError("");
 
     try {
-      const response = await fetch(`/api/agent-conversations/${encodeURIComponent(conversationId)}`, { signal });
+      const response = await apiFetch(`/api/agent-conversations/${encodeURIComponent(conversationId)}`, { signal });
       if (!response.ok) {
         throw new Error(`Agent conversation load failed with ${response.status}`);
       }
@@ -5780,13 +5819,14 @@ export function App() {
     setLoginError("");
 
     if (!email.endsWith("@muxing.cfd")) {
-      setLoginError("??? @muxing.cfd ????????");
+      setLoginError("请输入 @muxing.cfd 邮箱地址。");
       return;
     }
 
     setIsInternalLoginSubmitting(true);
     try {
-      const response = await fetch("/api/internal-login", {
+      await ensureEmbeddedStorageAccess();
+      const response = await apiFetch("/api/internal-login", {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -5795,20 +5835,21 @@ export function App() {
       });
 
       if (!response.ok) {
-        throw new Error(await readErrorMessage(response, locale, t));
+        throw await createApiError(response, locale, t);
       }
 
       const session = (await response.json()) as InternalSessionResponse;
       if (!session.authenticated || !session.email) {
-        throw new Error("?????????");
+        throw new Error("登录状态未生效，请重试。");
       }
 
+      rememberEmbeddedSessionToken(session);
       setInternalUserEmail(session.email);
       setIsGuestSession(Boolean(session.isGuest));
-      setLoginEmail(session.email);
+      setLoginEmail(loginEmailForSession(session));
       setLoginError("");
     } catch (error) {
-      setLoginError(error instanceof Error ? error.message : "?????????");
+      setLoginError(error instanceof Error ? error.message : "登录失败，请稍后重试。");
     } finally {
       setIsInternalLoginSubmitting(false);
     }
@@ -5818,32 +5859,37 @@ export function App() {
     setLoginError("");
     setIsInternalLoginSubmitting(true);
     try {
-      const response = await fetch("/api/guest-login", {
+      await ensureEmbeddedStorageAccess();
+      const response = await apiFetch("/api/guest-login", {
         method: "POST"
       });
 
       if (!response.ok) {
-        throw new Error(await readErrorMessage(response, locale, t));
+        throw await createApiError(response, locale, t);
       }
 
       const session = (await response.json()) as InternalSessionResponse;
       if (!session.authenticated || !session.email) {
-        throw new Error("?????????");
+        throw new Error("Guest 会话未创建成功，请重试。");
       }
 
+      rememberEmbeddedSessionToken(session);
       setInternalUserEmail(session.email);
       setIsGuestSession(Boolean(session.isGuest));
-      setLoginEmail(session.email);
+      setLoginEmail(loginEmailForSession(session));
       setLoginError("");
     } catch (error) {
-      setLoginError(error instanceof Error ? error.message : "?????????");
+      setLoginError(error instanceof Error ? error.message : "Guest 登录失败，请稍后重试。");
     } finally {
       setIsInternalLoginSubmitting(false);
     }
   }
 
   async function logoutInternalUser(): Promise<void> {
-    await fetch("/api/internal-logout", { method: "POST" }).catch(() => undefined);
+    await apiFetch("/api/internal-logout", { method: "POST" }).catch(() => undefined);
+    clearEmbeddedSessionToken();
+    setLoginEmail((current) => resetLoginEmail(current));
+    setLoginError("");
     setInternalUserEmail(null);
     setIsGuestSession(false);
     setProjectSnapshot(undefined);

@@ -4,6 +4,7 @@ export interface InternalSessionResponse {
   authenticated: boolean;
   email?: string;
   isGuest?: boolean;
+  sessionToken?: string;
 }
 
 export function InternalLoginScreen({
@@ -27,8 +28,7 @@ export function InternalLoginScreen({
     <main className="app-root internal-login-screen">
       <section className="internal-login-card">
         <div>
-          <p className="internal-login-eyebrow">??????</p>
-          <h1 className="internal-login-title">AI ????</h1>
+          <h1 className="internal-login-title">AI 创作画布</h1>
         </div>
 
         <form
@@ -39,7 +39,7 @@ export function InternalLoginScreen({
           }}
         >
           <label className="internal-login-field">
-            <span>??</span>
+            <span>邮箱</span>
             <input
               autoComplete="email"
               autoFocus
@@ -56,11 +56,11 @@ export function InternalLoginScreen({
 
           <button className="internal-login-submit" disabled={isLoading || isSubmitting} type="submit">
             {isLoading || isSubmitting ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <ShieldCheck className="size-4" aria-hidden="true" />}
-            ????
+            进入画布
           </button>
           <button className="secondary-action h-11 w-full" disabled={isLoading || isSubmitting} type="button" onClick={onGuestSubmit}>
             {isLoading || isSubmitting ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <UserRound className="size-4" aria-hidden="true" />}
-            Guest ????????
+            Guest 访客模式
           </button>
         </form>
       </section>
