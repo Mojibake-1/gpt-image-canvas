@@ -1,16 +1,4 @@
 @import "./styles/tokens.css";
 @import "./styles/layout.css";
-@import "./styles/canvas.css";
-@import "./styles/agent.css";
-@import "./styles/canvas-runtime.css";
-@import "./styles/gallery.css";
 @import "./styles/base.css";
 @import "./styles/layout-theme.css";
-@import "./styles/provider-config.css";
-@import "./styles/canvas-theme.css";
-@import "./styles/agent-panel.css";
-@import "./styles/agent-skills.css";
-@import "./styles/generation.css";
-@import "./styles/gallery-cards.css";
-@import "./styles/dark.css";
-@import "./styles/responsive.css";

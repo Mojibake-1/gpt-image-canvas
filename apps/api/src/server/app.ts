@@ -1,6 +1,6 @@
 import { relative } from "node:path";
 import { serveStatic } from "@hono/node-server/serve-static";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { WebSocketServer } from "ws";
 import { runtimePaths } from "../infrastructure/runtime.js";
 import { errorResponse } from "./http/errors.js";
@@ -20,6 +20,20 @@ import { registerStorageRoutes } from "./routes/storage.js";
 
 export const agentWebSocketServer = new WebSocketServer({ noServer: true });
 export const app = createApp();
+
+function setWebStaticCacheHeaders(c: Context): void {
+  const pathname = c.req.path;
+  if (pathname.startsWith("/api/")) {
+    return;
+  }
+
+  if (pathname.startsWith("/assets/")) {
+    c.header("Cache-Control", "public, max-age=31536000, immutable");
+    return;
+  }
+
+  c.header("Cache-Control", "no-cache");
+}
 
 export function createApp(): Hono {
   const app = new Hono();
@@ -47,6 +61,10 @@ export function createApp(): Hono {
   const webDistRoot = relative(process.cwd(), runtimePaths.webDistDir) || ".";
 
   app.get("/api/*", (c) => c.json(errorResponse("not_found", "Not found."), 404));
+  app.use("*", async (c, next) => {
+    setWebStaticCacheHeaders(c);
+    await next();
+  });
 
   app.get("*", serveStatic({ root: webDistRoot }));
   app.get(
