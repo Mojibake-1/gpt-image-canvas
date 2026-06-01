@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import { createApiError } from "./features/canvas/api-errors";
 import {
   apiFetch,
@@ -11,15 +11,32 @@ import { loginEmailForSession, resetLoginEmail } from "./features/canvas/login-e
 import { useI18n } from "./i18n";
 
 type SessionState = "checking" | "anonymous" | "authenticated";
+type CanvasRuntimeModule = { default: ComponentType };
 
-const LazyCanvasApp = lazy(async () => {
-  const [{ loadCanvasStyles }, module] = await Promise.all([
+let canvasRuntimePromise: Promise<CanvasRuntimeModule> | null = null;
+
+function loadCanvasRuntime(): Promise<CanvasRuntimeModule> {
+  canvasRuntimePromise ??= Promise.all([
     import("./features/canvas/load-canvas-styles"),
     import("./features/canvas/CanvasApp")
-  ]);
-  await loadCanvasStyles();
-  return { default: module.App };
-});
+  ])
+    .then(async ([{ loadCanvasStyles }, module]) => {
+      await loadCanvasStyles();
+      return { default: module.App };
+    })
+    .catch((error) => {
+      canvasRuntimePromise = null;
+      throw error;
+    });
+
+  return canvasRuntimePromise;
+}
+
+const LazyCanvasApp = lazy(loadCanvasRuntime);
+
+function preloadCanvasRuntime(): void {
+  void loadCanvasRuntime().catch(() => undefined);
+}
 
 function notifyMuxingWorkbenchReady(): void {
   if (window.parent === window) {
@@ -58,6 +75,42 @@ function CanvasReadySignal() {
   return null;
 }
 
+function useCanvasRuntimePreload(enabled: boolean): void {
+  const didStartRef = useRef(false);
+
+  useEffect(() => {
+    if (!enabled || didStartRef.current) {
+      return;
+    }
+
+    let didCancel = false;
+    const startPreload = () => {
+      if (!didCancel && !didStartRef.current) {
+        didStartRef.current = true;
+        preloadCanvasRuntime();
+      }
+    };
+    const windowWithIdleCallback = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    const idleHandle = windowWithIdleCallback.requestIdleCallback?.(startPreload, { timeout: 1200 });
+
+    if (idleHandle !== undefined) {
+      return () => {
+        didCancel = true;
+        windowWithIdleCallback.cancelIdleCallback?.(idleHandle);
+      };
+    }
+
+    const timeoutHandle = window.setTimeout(startPreload, 200);
+    return () => {
+      didCancel = true;
+      window.clearTimeout(timeoutHandle);
+    };
+  }, [enabled]);
+}
+
 export function App() {
   const { locale, t } = useI18n();
   const [sessionState, setSessionState] = useState<SessionState>("checking");
@@ -65,7 +118,8 @@ export function App() {
   const [loginError, setLoginError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useMuxingWorkbenchReady(sessionState === "anonymous");
+  useMuxingWorkbenchReady(sessionState !== "authenticated");
+  useCanvasRuntimePreload(sessionState !== "authenticated");
 
   const applySession = useCallback((session: InternalSessionResponse): boolean => {
     const hasSession = Boolean(session.authenticated && session.email);
