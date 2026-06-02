@@ -291,7 +291,7 @@ const promptStarters = [
     promptKey: "promptStarterCityPrompt"
   }
 ] as const;
-const DEFAULT_SIZE_PRESET_ID = "portrait-4k";
+const DEFAULT_SIZE_PRESET_ID = "square-1k";
 const DEFAULT_SIZE_PRESET = SIZE_PRESETS.find((preset) => preset.id === DEFAULT_SIZE_PRESET_ID) ?? SIZE_PRESETS[0];
 const DEFAULT_IMAGE_QUALITY: ImageQuality = "high";
 const quickSizePresetIds = new Set([
