@@ -126,6 +126,7 @@ import {
   type ImageSizeValidationReason,
   type OutputFormat,
   type ProjectState,
+  type PromptFavoriteItem,
   type PromptPoolItem,
   type ReferenceImageInput,
   type ResolutionTier,
@@ -136,6 +137,7 @@ import {
   type StorageTestResult,
   type StylePresetId
 } from "@gpt-image-canvas/shared";
+import { PromptFavoritesPanel } from "../prompt-favorites/PromptFavoritesPanel";
 import { localizedApiErrorMessage, useI18n, type Locale, type Translate } from "../../shared/i18n";
 import { assetDownloadUrl, assetPreviewUrl } from "../../shared/api/assets";
 import { writeClipboardText } from "../../shared/clipboard";
@@ -4453,6 +4455,20 @@ export function App() {
     }
   }
 
+  function reusePromptFavoriteItem(favorite: PromptFavoriteItem): void {
+    setPrompt(favorite.prompt);
+    setStylePreset("none");
+    setGenerationMode("text");
+    setCount(1);
+    setGenerationError("");
+    setGenerationWarning("");
+    setGenerationMessage(t("generationFavoriteReused"));
+    navigateToRoute("canvas");
+    if (isMobileDrawer) {
+      setIsAiPanelOpen(true);
+    }
+  }
+
   function removeGalleryOutputFromHistory(outputId: string): void {
     setGenerationHistory((history) =>
       history.flatMap((record) => {
@@ -6002,6 +6018,7 @@ export function App() {
         onPreloadGallery={preloadGalleryPage}
         onPreloadPool={preloadPromptPoolPage}
       />
+      {route === "canvas" ? <PromptFavoritesPanel isMobile={isMobileDrawer} onUse={reusePromptFavoriteItem} /> : null}
       <main className="app-shell app-view relative flex min-h-0 overflow-hidden bg-neutral-950 text-neutral-900" data-active-route={route} hidden={route !== "canvas"}>
       <section
         className="relative min-w-0 flex-1 bg-neutral-100 outline-none"
