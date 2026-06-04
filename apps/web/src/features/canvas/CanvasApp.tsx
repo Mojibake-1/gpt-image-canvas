@@ -57,6 +57,7 @@ import {
   type GenerationPlaceholderShape
 } from "./GenerationPlaceholderShape";
 import { loginEmailForSession, resetLoginEmail } from "./login-email-state";
+import { getShellColorScheme, useShellColorScheme } from "./shell-theme-bridge";
 import {
   AGENT_PLAN_NODE_TYPE,
   AgentPlanNodeShapeUtil,
@@ -2834,16 +2835,35 @@ function ProviderStatusPopover({
 export function App() {
   const { formatDateTime, locale, setLocale, t } = useI18n();
   const tldrawLocale = tldrawLocaleForLocale(locale);
-  const [tldrawUserPreferences, setTldrawUserPreferences] = useState<TLUserPreferences>(() => ({
-    id: TLDRAW_USER_ID,
-    isSnapMode: CANVAS_DEFAULT_SNAP_MODE,
-    locale: tldrawLocale
-  }));
+  const shellColorScheme = useShellColorScheme();
+  const [tldrawUserPreferences, setTldrawUserPreferences] = useState<TLUserPreferences>(() => {
+    const initialScheme = getShellColorScheme();
+    return {
+      id: TLDRAW_USER_ID,
+      isSnapMode: CANVAS_DEFAULT_SNAP_MODE,
+      locale: tldrawLocale,
+      // 外壳在 URL 烘焙了主题时，首帧即用其色彩方案，避免明/暗闪烁；
+      // 未提供时省略 colorScheme，保留 tldraw 默认（跟随系统）。
+      ...(initialScheme ? { colorScheme: initialScheme } : {})
+    };
+  });
   useEffect(() => {
     setTldrawUserPreferences((currentPreferences) =>
       currentPreferences.locale === tldrawLocale ? currentPreferences : { ...currentPreferences, locale: tldrawLocale }
     );
   }, [tldrawLocale]);
+  // 外壳后续切主题（postMessage）时，把色彩方案灌进 Canvas 自己的 tldraw colorScheme 机制。
+  // 这是额外的外部输入源——用户仍可通过 tldraw 菜单手动切换明/暗，两者走的是同一套偏好。
+  useEffect(() => {
+    if (!shellColorScheme) {
+      return;
+    }
+    setTldrawUserPreferences((currentPreferences) =>
+      currentPreferences.colorScheme === shellColorScheme
+        ? currentPreferences
+        : { ...currentPreferences, colorScheme: shellColorScheme }
+    );
+  }, [shellColorScheme]);
   const syncTldrawUserPreferences = useCallback(
     (preferences: TLUserPreferences) => {
       setTldrawUserPreferences({
@@ -6011,7 +6031,7 @@ export function App() {
                   aria-label={t("storageSettings")}
                   className={`inline-flex h-7 w-7 items-center justify-center rounded-md border text-xs transition focus:outline-none focus:ring-2 focus:ring-cyan-100 ${
                     storageConfig?.enabled
-                      ? "border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100"
+                      ? "border-[#ead1bc] bg-[#fff5e8] text-[var(--accent-dark)] hover:bg-[#ffead0]"
                       : "border-neutral-200 bg-white text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900"
                   }`}
                   data-testid="storage-settings-button"
