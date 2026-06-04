@@ -54,11 +54,14 @@ export class ProviderError extends Error {
   }
 }
 
+export type OpenAIImageApiMode = "images" | "responses";
+
 export interface OpenAIImageProviderConfig {
   apiKey: string;
   baseURL?: string;
   model: string;
   timeoutMs: number;
+  apiMode?: OpenAIImageApiMode;
   codexCliCompatible?: boolean;
 }
 
@@ -66,6 +69,8 @@ export const DEFAULT_OPENAI_IMAGE_TIMEOUT_MS = 20 * 60 * 1000;
 const MAX_REFERENCE_IMAGE_BYTES = 50 * 1024 * 1024;
 const MAX_PROVIDER_IMAGE_BYTES = 100 * 1024 * 1024;
 const SUPPORTED_REFERENCE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp"]);
+const RESPONSES_IMAGE_INSTRUCTIONS =
+  "Use the image_generation tool to create exactly one image for the user's request. Return the generated image result.";
 
 type FlexibleImageGenerateParams = Omit<ImageGenerateParamsNonStreaming, "size"> & {
   size: string;
@@ -101,6 +106,7 @@ export function getOpenAIImageProviderConfig():
       baseURL: baseURL || undefined,
       model: getConfiguredImageModel(),
       timeoutMs: parseOpenAIImageTimeoutMs(process.env.OPENAI_IMAGE_TIMEOUT_MS),
+      apiMode: getOpenAIImageApiMode(process.env.OPENAI_IMAGE_API_MODE),
       codexCliCompatible: isCodexCliCompatibleEndpoint(baseURL)
     }
   };
@@ -108,6 +114,11 @@ export function getOpenAIImageProviderConfig():
 
 export function getConfiguredImageModel(): string {
   return process.env.OPENAI_IMAGE_MODEL?.trim() || IMAGE_MODEL;
+}
+
+export function getOpenAIImageApiMode(value: string | undefined): OpenAIImageApiMode {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "responses" ? "responses" : "images";
 }
 
 export function parseOpenAIImageTimeoutMs(value: string | undefined): number {
@@ -131,6 +142,10 @@ class OpenAIImageProvider implements ImageProvider {
 
   async generate(input: ImageProviderInput, signal?: AbortSignal): Promise<ProviderResult> {
     try {
+      if (this.config.apiMode === "responses") {
+        return await requestOpenAIResponsesImage(input, this.config, signal);
+      }
+
       const body: FlexibleImageGenerateParams = {
         model: this.config.model,
         prompt: providerPrompt(input.prompt, this.config.codexCliCompatible),
@@ -158,6 +173,10 @@ class OpenAIImageProvider implements ImageProvider {
 
   async edit(input: EditImageProviderInput, signal?: AbortSignal): Promise<ProviderResult> {
     try {
+      if (this.config.apiMode === "responses") {
+        return await requestOpenAIResponsesImage(input, this.config, signal);
+      }
+
       const references = await Promise.all(input.referenceImages.map((referenceImage) => dataUrlToFile(referenceImage)));
       const body: FlexibleImageEditParams = {
         model: this.config.model,
@@ -224,6 +243,334 @@ function imageGenerateRequestBody(body: FlexibleImageGenerateParams): ImageGener
 function imageEditRequestBody(body: FlexibleImageEditParams): ImageEditParamsNonStreaming {
   // The SDK's image size union can lag gpt-image-2's documented flexible-size support.
   return body as unknown as ImageEditParamsNonStreaming;
+}
+
+
+type ResponsesImageInput = ImageProviderInput | EditImageProviderInput;
+
+interface ResponsesImageTool {
+  type: "image_generation";
+  model: string;
+  action: "generate" | "edit";
+  size: string;
+  quality: string;
+  output_format: string;
+}
+
+async function requestOpenAIResponsesImage(
+  input: ResponsesImageInput,
+  config: OpenAIImageProviderConfig,
+  signal?: AbortSignal
+): Promise<ProviderResult> {
+  const images: ProviderImage[] = [];
+  const timeout = timeoutSignal(signal, config.timeoutMs);
+
+  try {
+    while (images.length < input.count) {
+      const response = await fetch(openAIResponsesURL(config.baseURL), {
+        method: "POST",
+        headers: openAIResponsesHeaders(config.apiKey),
+        body: JSON.stringify(createOpenAIResponsesRequestBody(input, config)),
+        signal: timeout.signal
+      }).catch((error: unknown) => {
+        throw fetchFailureToProviderError(error);
+      });
+
+      if (!response.ok) {
+        throw await responsesHttpProviderErrorFromResponse(response);
+      }
+
+      const payloads = await readOpenAIResponsesPayloads(response);
+      const responseImages = extractImagesFromResponsePayloads(payloads);
+      if (responseImages.length === 0) {
+        throw new ProviderError("unsupported_provider_behavior", "OpenAI Responses image service request failed. Try again later.", 502);
+      }
+
+      images.push(
+        ...responseImages.map((image) => ({
+          b64Json: image
+        }))
+      );
+    }
+
+    return {
+      model: config.model,
+      size: input.sizeApiValue,
+      images: images.slice(0, input.count)
+    };
+  } finally {
+    timeout.cleanup();
+  }
+}
+
+function openAIResponsesURL(baseURL: string | undefined): string {
+  return `${(baseURL?.trim() || "https://api.openai.com/v1").replace(/\/+$/u, "")}/responses`;
+}
+
+function openAIResponsesHeaders(apiKey: string): HeadersInit {
+  return {
+    Authorization: `Bearer ${apiKey}`,
+    "Content-Type": "application/json"
+  };
+}
+
+function createOpenAIResponsesRequestBody(
+  input: ResponsesImageInput,
+  config: OpenAIImageProviderConfig
+): Record<string, unknown> {
+  const tool: ResponsesImageTool = {
+    type: "image_generation",
+    model: config.model,
+    action: "referenceImages" in input ? "edit" : "generate",
+    size: input.sizeApiValue,
+    quality: input.quality,
+    output_format: input.outputFormat
+  };
+
+  return {
+    model: config.model,
+    instructions: RESPONSES_IMAGE_INSTRUCTIONS,
+    store: false,
+    input: [
+      {
+        role: "user",
+        content: createResponsesInputContent(input, config)
+      }
+    ],
+    tools: [tool],
+    tool_choice: {
+      type: "image_generation"
+    },
+    stream: false
+  };
+}
+
+function createResponsesInputContent(input: ResponsesImageInput, config: OpenAIImageProviderConfig): Array<Record<string, string>> {
+  const content: Array<Record<string, string>> = [
+    {
+      type: "input_text",
+      text: providerPrompt(input.prompt, config.codexCliCompatible)
+    }
+  ];
+
+  if ("referenceImages" in input) {
+    for (const referenceImage of input.referenceImages) {
+      content.push({
+        type: "input_image",
+        image_url: normalizeReferenceImageDataUrl(referenceImage)
+      });
+    }
+  }
+
+  return content;
+}
+
+function normalizeReferenceImageDataUrl(input: ReferenceImageInput): string {
+  const match = /^data:([^;,]+);base64,(.+)$/u.exec(input.dataUrl);
+  if (!match) {
+    throw new ProviderError("unsupported_provider_behavior", "Reference image format is not supported.", 400);
+  }
+
+  const mimeType = match[1].toLowerCase();
+  if (!SUPPORTED_REFERENCE_MIME_TYPES.has(mimeType)) {
+    throw new ProviderError("unsupported_provider_behavior", "Reference images must be PNG, JPEG, or WebP.", 400);
+  }
+
+  const bytes = Buffer.from(match[2], "base64");
+  if (bytes.length > MAX_REFERENCE_IMAGE_BYTES) {
+    throw new ProviderError("unsupported_provider_behavior", "Reference images must be 50MB or smaller.", 400);
+  }
+
+  const normalizedMimeType = mimeType === "image/jpg" ? "image/jpeg" : mimeType;
+  return `data:${normalizedMimeType};base64,${match[2]}`;
+}
+
+async function readOpenAIResponsesPayloads(response: Response): Promise<unknown[]> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const json = await response.json().catch(() => undefined);
+    return json === undefined ? [] : [json];
+  }
+
+  return parseOpenAIResponsesEventsFromSse(await response.text());
+}
+
+function parseOpenAIResponsesEventsFromSse(text: string): unknown[] {
+  const events: unknown[] = [];
+  let dataLines: string[] = [];
+
+  const flush = (): void => {
+    if (dataLines.length === 0) {
+      return;
+    }
+
+    const data = dataLines.join("\n").trim();
+    dataLines = [];
+    if (!data || data === "[DONE]") {
+      return;
+    }
+
+    try {
+      events.push(JSON.parse(data) as unknown);
+    } catch {
+      events.push(data);
+    }
+  };
+
+  for (const line of text.split(/\r?\n/u)) {
+    if (line.length === 0) {
+      flush();
+      continue;
+    }
+
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5).trimStart());
+    }
+  }
+
+  flush();
+  return events;
+}
+
+function extractImagesFromResponsePayloads(payloads: unknown[]): string[] {
+  const images: string[] = [];
+  const seen = new Set<string>();
+
+  for (const payload of payloads) {
+    for (const image of extractImagesFromResponsePayload(payload)) {
+      if (!seen.has(image)) {
+        seen.add(image);
+        images.push(image);
+      }
+    }
+  }
+
+  return images;
+}
+
+function extractImagesFromResponsePayload(payload: unknown): string[] {
+  const record = objectValue(payload);
+  if (!record) {
+    return [];
+  }
+
+  if (record.type === "response.output_item.done") {
+    return extractImagesFromOutputItem(record.item ?? record.output_item);
+  }
+
+  if (record.type === "response.completed") {
+    return extractImagesFromResponse(record.response);
+  }
+
+  return [...extractImagesFromResponse(record), ...extractImagesFromOutputItem(record)];
+}
+
+function extractImagesFromResponse(response: unknown): string[] {
+  const record = objectValue(response);
+  if (!record || !Array.isArray(record.output)) {
+    return [];
+  }
+
+  return record.output.flatMap(extractImagesFromOutputItem);
+}
+
+function extractImagesFromOutputItem(item: unknown): string[] {
+  const record = objectValue(item);
+  if (!record || record.type !== "image_generation_call") {
+    return [];
+  }
+
+  const image = normalizeImageBase64(record.result);
+  return image ? [image] : [];
+}
+
+function normalizeImageBase64(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  const dataUrlMatch = /^data:image\/[^;,]+;base64,(.+)$/u.exec(trimmed);
+  return dataUrlMatch?.[1] ?? trimmed;
+}
+
+async function responsesHttpProviderErrorFromResponse(response: Response): Promise<ProviderError> {
+  const status = response.status;
+  if (status === 401 || status === 403) {
+    return new ProviderError("upstream_failure", "OpenAI Responses image service authentication failed. Check OPENAI_API_KEY.", status);
+  }
+
+  const detail = sanitizeProviderErrorDetail(await readProviderErrorDetail(response));
+  const suffix = detail ? `: ${detail}` : "";
+  return new ProviderError("upstream_failure", `OpenAI Responses image service request failed (HTTP ${status})${suffix}`, providerHttpStatus(status));
+}
+
+async function readProviderErrorDetail(response: Response): Promise<string | undefined> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const body = await response.json().catch(() => undefined);
+    return extractProviderErrorDetail(body);
+  }
+
+  return response.text().catch(() => undefined);
+}
+
+function extractProviderErrorDetail(value: unknown): string | undefined {
+  const record = objectValue(value);
+  if (!record) {
+    return typeof value === "string" ? value : undefined;
+  }
+
+  const detail = record.detail ?? record.message;
+  if (typeof detail === "string") {
+    return detail;
+  }
+
+  const error = objectValue(record.error);
+  return typeof error?.message === "string" ? error.message : undefined;
+}
+
+function sanitizeProviderErrorDetail(value: string | undefined): string | undefined {
+  const sanitized = value
+    ?.replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/giu, "Bearer [redacted]")
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/gu, "sk-[redacted]")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 500);
+
+  return sanitized || undefined;
+}
+
+function fetchFailureToProviderError(error: unknown): ProviderError | Error {
+  if (isAbortError(error)) {
+    return new ProviderError("upstream_failure", "OpenAI Responses image service request timed out. Try again later or lower the resolution.", 504);
+  }
+
+  return new ProviderError("upstream_failure", "OpenAI Responses image service request failed. Try again later.", 502);
+}
+
+function timeoutSignal(signal: AbortSignal | undefined, timeoutMs: number): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const abort = (): void => controller.abort(signal?.reason);
+
+  if (signal?.aborted) {
+    abort();
+  } else if (signal) {
+    signal.addEventListener("abort", abort, { once: true });
+  }
+
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", abort);
+    }
+  };
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
 function toProviderError(error: unknown): Error {

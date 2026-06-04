@@ -1,4 +1,5 @@
 export type RuntimeImageProvider = "openai" | "codex" | "none";
+export type OpenAIImageApiMode = "images" | "responses";
 
 export const PROVIDER_SOURCE_IDS = ["env-openai", "local-openai", "codex"] as const;
 export type ProviderSourceId = (typeof PROVIDER_SOURCE_IDS)[number];
@@ -23,6 +24,7 @@ export interface ProviderSourceDetails {
   baseUrl?: string;
   model?: string;
   timeoutMs?: number;
+  apiMode?: OpenAIImageApiMode;
   codex?: CodexAuthSessionView;
 }
 

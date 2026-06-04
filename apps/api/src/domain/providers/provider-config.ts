@@ -17,6 +17,7 @@ import { db } from "../../infrastructure/database.js";
 import {
   DEFAULT_OPENAI_IMAGE_TIMEOUT_MS,
   getConfiguredImageModel,
+  getOpenAIImageApiMode,
   isCodexCliCompatibleEndpoint,
   parseOpenAIImageTimeoutMs,
   type OpenAIImageProviderConfig
@@ -117,6 +118,7 @@ export function getEnvironmentOpenAIImageProviderConfig(): OpenAIImageProviderCo
     baseURL: baseURL || undefined,
     model: getConfiguredImageModel(),
     timeoutMs: parseOpenAIImageTimeoutMs(process.env.OPENAI_IMAGE_TIMEOUT_MS),
+    apiMode: getOpenAIImageApiMode(process.env.OPENAI_IMAGE_API_MODE),
     codexCliCompatible: isCodexCliCompatibleEndpoint(baseURL)
   };
 }
@@ -187,7 +189,8 @@ function providerSources(row: ProviderConfigRow | undefined, scope: ProviderConf
       details: {
         baseUrl: process.env.OPENAI_BASE_URL?.trim() || "",
         model: getConfiguredImageModel(),
-        timeoutMs: parseOpenAIImageTimeoutMs(process.env.OPENAI_IMAGE_TIMEOUT_MS)
+        timeoutMs: parseOpenAIImageTimeoutMs(process.env.OPENAI_IMAGE_TIMEOUT_MS),
+        apiMode: getOpenAIImageApiMode(process.env.OPENAI_IMAGE_API_MODE)
       },
       secret: maskedSecret(process.env.OPENAI_API_KEY)
     },
