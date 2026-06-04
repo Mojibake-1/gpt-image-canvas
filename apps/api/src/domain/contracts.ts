@@ -23,6 +23,14 @@ export {
 } from "@gpt-image-canvas/shared";
 
 export type {
+  CreatePromptFavoriteGroupRequest,
+  CreatePromptFavoriteRequest,
+  PromptFavoriteGroup,
+  PromptFavoriteItem,
+  PromptFavoritesResponse,
+  PromptFavoriteSourceType,
+  UpdatePromptFavoriteGroupRequest,
+  UpdatePromptFavoriteRequest,
   AppConfig,
   AuthStatusResponse,
   AssetMetadataResponse,

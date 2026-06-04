@@ -5,3 +5,5 @@ export * from "./project.js";
 export * from "./provider-config.js";
 export * from "./agent.js";
 export * from "./storage.js";
+export * from "./prompt-pool.js";
+export * from "./prompt-favorites.js";

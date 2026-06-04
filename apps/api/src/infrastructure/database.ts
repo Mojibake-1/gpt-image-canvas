@@ -194,6 +194,39 @@ CREATE INDEX IF NOT EXISTS generation_reference_assets_generation_id_idx ON gene
 CREATE INDEX IF NOT EXISTS generation_reference_assets_asset_id_idx ON generation_reference_assets(asset_id);
 CREATE INDEX IF NOT EXISTS agent_conversations_updated_at_idx ON agent_conversations(updated_at);
 CREATE UNIQUE INDEX IF NOT EXISTS agent_skills_slug_idx ON agent_skills(slug);
+
+CREATE TABLE IF NOT EXISTS prompt_favorite_groups (
+  id TEXT PRIMARY KEY NOT NULL,
+  owner_email TEXT NOT NULL,
+  name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS prompt_favorites (
+  id TEXT PRIMARY KEY NOT NULL,
+  owner_email TEXT NOT NULL,
+  source_type TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  group_id TEXT NOT NULL REFERENCES prompt_favorite_groups(id),
+  title TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  model TEXT NOT NULL,
+  media_type TEXT NOT NULL,
+  asset_url TEXT NOT NULL,
+  image_width INTEGER,
+  image_height INTEGER,
+  source_url TEXT,
+  use_count INTEGER NOT NULL DEFAULT 0,
+  last_used_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS prompt_favorite_groups_owner_idx ON prompt_favorite_groups(owner_email, sort_order);
+CREATE UNIQUE INDEX IF NOT EXISTS prompt_favorites_owner_source_idx ON prompt_favorites(owner_email, source_type, source_id);
+CREATE INDEX IF NOT EXISTS prompt_favorites_owner_group_idx ON prompt_favorites(owner_email, group_id);
 `);
 
 ensureColumn("projects", "owner_email", "owner_email TEXT");

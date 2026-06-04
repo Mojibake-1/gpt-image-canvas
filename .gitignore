@@ -22,3 +22,6 @@ coverage/
 apps/web/dist/
 apps/api/dist/
 packages/shared/dist/
+
+# External prompt pool dataset (provide via PROMPT_POOL_DIR; never commit the large JSON).
+/prompt-pool-data/
