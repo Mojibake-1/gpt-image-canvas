@@ -126,6 +126,7 @@ import {
   type ImageSizeValidationReason,
   type OutputFormat,
   type ProjectState,
+  type PromptPoolItem,
   type ReferenceImageInput,
   type ResolutionTier,
   type SaveStorageConfigRequest,
@@ -325,8 +326,22 @@ function preloadGalleryPage(): void {
   void loadGalleryPageModule();
 }
 
+type PromptPoolPageModule = { default: typeof import("../pool/PromptPoolPage").PromptPoolPage };
+let promptPoolPageModulePromise: Promise<PromptPoolPageModule> | undefined;
+
+function loadPromptPoolPageModule(): Promise<PromptPoolPageModule> {
+  promptPoolPageModulePromise ??= import("../pool/PromptPoolPage").then((module) => ({ default: module.PromptPoolPage }));
+  return promptPoolPageModulePromise;
+}
+
+const LazyPromptPoolPage = lazy(loadPromptPoolPageModule);
+
+function preloadPromptPoolPage(): void {
+  void loadPromptPoolPageModule();
+}
+
 type PersistedSnapshot = TLEditorSnapshot | TLStoreSnapshot;
-type AppRoute = "canvas" | "gallery";
+type AppRoute = "canvas" | "pool" | "gallery";
 type SaveStatus = "loading" | "saved" | "pending" | "saving" | "error";
 type GenerationMode = "text" | "reference";
 type PanelTab = "manual" | "agent";
@@ -652,12 +667,24 @@ function imageSizeValidationMessage(reason: ImageSizeValidationReason | undefine
 }
 
 function routeFromLocation(): AppRoute {
-  return window.location.pathname === "/gallery" ? "gallery" : "canvas";
+  if (window.location.pathname === "/gallery") {
+    return "gallery";
+  }
+
+  if (window.location.pathname === "/pool") {
+    return "pool";
+  }
+
+  return "canvas";
 }
 
 function pathForRoute(route: AppRoute): string {
   if (route === "canvas") {
     return "/";
+  }
+
+  if (route === "pool") {
+    return "/pool";
   }
 
   return "/gallery";
@@ -2610,7 +2637,8 @@ function TopNavigation({
   onOpenProviderConfig,
   route,
   onNavigate,
-  onPreloadGallery
+  onPreloadGallery,
+  onPreloadPool
 }: {
   internalUserEmail: string;
   onLogoutInternalUser: () => void;
@@ -2618,6 +2646,7 @@ function TopNavigation({
   route: AppRoute;
   onNavigate: (route: AppRoute) => void;
   onPreloadGallery: () => void;
+  onPreloadPool: () => void;
 }) {
   const { t } = useI18n();
 
@@ -2646,6 +2675,22 @@ function TopNavigation({
             >
               <Square className="size-4" aria-hidden="true" />
               {t("navCanvas")}
+            </a>
+            <a
+              aria-current={route === "pool" ? "page" : undefined}
+              className="top-navigation__link"
+              data-active={route === "pool"}
+              data-testid="nav-pool"
+              href="/pool"
+              onFocus={onPreloadPool}
+              onMouseEnter={onPreloadPool}
+              onClick={(event) => {
+                event.preventDefault();
+                onNavigate("pool");
+              }}
+            >
+              <BookOpenCheck className="size-4" aria-hidden="true" />
+              {t("navPool")}
             </a>
             <a
               aria-current={route === "gallery" ? "page" : undefined}
@@ -4394,6 +4439,20 @@ export function App() {
     }
   }
 
+  function reusePromptPoolItem(item: PromptPoolItem): void {
+    setPrompt(item.prompt);
+    setStylePreset("none");
+    setGenerationMode("text");
+    setCount(1);
+    setGenerationError("");
+    setGenerationWarning("");
+    setGenerationMessage(t("generationPoolReused"));
+    navigateToRoute("canvas");
+    if (isMobileDrawer) {
+      setIsAiPanelOpen(true);
+    }
+  }
+
   function removeGalleryOutputFromHistory(outputId: string): void {
     setGenerationHistory((history) =>
       history.flatMap((record) => {
@@ -5941,6 +6000,7 @@ export function App() {
         onNavigate={navigateToRoute}
         onOpenProviderConfig={() => setIsProviderConfigDialogOpen(true)}
         onPreloadGallery={preloadGalleryPage}
+        onPreloadPool={preloadPromptPoolPage}
       />
       <main className="app-shell app-view relative flex min-h-0 overflow-hidden bg-neutral-950 text-neutral-900" data-active-route={route} hidden={route !== "canvas"}>
       <section
@@ -7498,6 +7558,20 @@ export function App() {
           onStartCodexLogin={startCodexLogin}
           localOnly={isGuestSession}
         />
+      ) : null}
+      {route === "pool" ? (
+        <Suspense
+          fallback={
+            <main className="pool-page app-view" data-testid="pool-loading-page">
+              <div className="pool-empty-state" role="status">
+                <Loader2 className="size-5 animate-spin" aria-hidden="true" />
+                <p>{t("poolLoading")}</p>
+              </div>
+            </main>
+          }
+        >
+          <LazyPromptPoolPage onUsePrompt={reusePromptPoolItem} />
+        </Suspense>
       ) : null}
       {route === "gallery" ? (
         <Suspense
