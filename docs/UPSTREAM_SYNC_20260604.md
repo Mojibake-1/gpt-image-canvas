@@ -1,159 +1,190 @@
-# Upstream Sync Review — 2026-06-04
+# Upstream Sync — Verified Migration Matrix — 2026-06-04
 
-Branch: `codex/canvas-upstream-sync-20260604`
-Base commit: `ad52b7d` (`feat: support responses env openai provider`)
-Upstream reviewed: `mrslimslim/gpt-image-canvas` @ `upstream/main` = `c62a01e` (`fix: store increase error`)
-Merge-base with upstream: `17f0387`
+Branch: `codex/canvas-upstream-full-merge-20260604`
+Base: `ad52b7d` (`feat: support responses env openai provider`) → `0e35a2e` (prior triage doc)
+Upstream synced from: `mrslimslim/gpt-image-canvas` @ `upstream/main` = `c62a01e` (`fix: store increase error`)
+Merge-base with upstream: `17f0387` (fork and upstream diverged here)
+Commits reviewed: all 41 in `17f0387..upstream/main`
 
-## Decision
+## Outcome
 
-**No upstream commit was backported.** After full triage, none of the 41 upstream
-commits in `17f0387..upstream/main` is simultaneously (a) valuable, (b) applicable to
-this fork, and (c) safely hand-portable without duplicating or destabilizing the
-Muxing customizations. All upstream changes are **deferred** and recorded below.
+This run **manually ported the one upstream behavior that was genuinely missing and
+reliably portable**, and verified every other upstream commit with code-level proof.
+Unlike the prior triage (which deferred all 41 and contained several false
+"subsystem absent" claims), every disposition below is backed by a `git grep` /
+`git show <ref>:<path>` against the fork base `0e35a2e` and the upstream commit.
 
-This branch therefore preserves the Muxing server exactly as of `ad52b7d`. The only
-change introduced by this review is this document.
-
-## Why a merge/cherry-pick is not viable
-
-The Muxing fork and upstream diverged at `17f0387` and then re-developed overlapping
-feature areas (agent canvas, storage, gallery, provider layer) in parallel with
-*different commit identity*. Measured facts:
-
-| Probe | Result |
+| Disposition | Count |
 |---|---|
-| `git cherry ad52b7d c62a01e` | **0 of 41** upstream commits are patch-equivalent to ours (all `+`) |
-| Files changed by upstream (`17f0387..upstream/main`) | 149 |
-| Files changed by us (`17f0387..ad52b7d`) | 157 |
-| Files changed by **both** (direct conflict surface) | **132** |
-| `git merge-tree` cherry-pick simulation onto `ad52b7d` | **41 of 41 conflict** (incl. every 1-file commit) |
+| **Implemented** (ported this run) | **1** — `eb4ad5b` requested-output-count preservation |
+| Already equivalent (fork has it / inapplicable subsystem) | 36 |
+| Blocked, with code-level proof | 4 — `6885edc` prompt pool + its 3 dependents |
+| **Total** | **41** |
 
-Because our versions of the shared files diverged so far, no upstream patch applies in
-context — even a 1-line CSS commit conflicts. A full `git merge upstream/main` would
-raise conflicts across ~132 files and risk silently clobbering Muxing-specific layers.
-"Backport" here can only mean *manual* re-implementation, so each commit was judged on
-whether a manual port is worth the risk.
+Method: per-commit read-only analysis of upstream diff vs the fork's committed code,
+followed by adversarial verification of the one actionable finding (confirmed
+portable: genuinely absent + isolatable without touching protected Muxing files).
 
-## Triage methodology
+## Corrections to the prior triage (`docs` @ `0e35a2e`)
 
-1. Computed divergence (merge-base, commit lists, file overlap, patch-equivalence).
-2. Simulated every cherry-pick in-memory with `git merge-tree` (no worktree mutation).
-3. Ran a read-only multi-agent triage over all 41 upstream commits, classifying each
-   into the risk phases below with a port/defer recommendation.
-4. **Independently verified by hand** every commit that the triage flagged as
-   containing a "genuine fix" — confirming each is either inapplicable or already
-   present in this fork (see "Verified fix candidates").
+The prior doc deferred everything and justified several deferrals with claims that
+are factually wrong. Re-verified facts:
 
-## Upstream commits grouped by phase (all deferred)
+- **`0adf543` is NOT "inapplicable because the codex-image-provider subsystem is
+  absent."** The subsystem exists: `apps/api/src/infrastructure/providers/codex-image-provider.ts`,
+  `apps/api/src/domain/providers/image-provider-selection.ts`,
+  `apps/api/src/domain/providers/provider-config.ts`,
+  `apps/web/src/features/provider-config/ProviderConfigDialog.tsx`. The correct reason
+  it needs no port: the fix is **already fully applied** in the fork (see matrix).
+- **`051803a` is NOT "inapplicable because SIZE_PRESETS is absent."** The fork
+  imports and uses `SIZE_PRESETS` (`packages/shared/src/image.ts`) throughout
+  `CanvasApp.tsx`, and **already contains `portrait-4k`** in both `image.ts` and the
+  i18n `sizePresetLabels`.
+- **`84cc805` is NOT "inapplicable because canvas.css is absent."** The fork has
+  `apps/web/src/styles/canvas.css` and its blob already equals this commit's post-image.
+- **`eb4ad5b` is NOT "already present."** The fork has `evaluatePlannerAttemptOutput`
+  but lacked the requested-output-count guard — this run ported it.
 
-### Phase 1 — low-risk bugfix / provider compatibility
-| Commit | Subject | Disposition |
+## Migration matrix (all 41 commits)
+
+Fork refs are `0e35a2e:<path>`. "equivalent" = fork already implements the behavior;
+"inapplicable" = the targeted subsystem/bug does not exist in the fork.
+
+### Implemented this run
+
+| Commit | Subject | Fork state | Action |
+|---|---|---|---|
+| `eb4ad5b` | feat: update agent mode | **missing** (the requested-output-count guard) | **Ported** — see "Implemented" below |
+
+### Low-risk fixes — already equivalent (verified)
+
+| Commit | Subject | Fork state | Evidence (fork base `0e35a2e`) |
+|---|---|---|---|
+| `0adf543` | fix: codex login error | equivalent | `infrastructure/providers/codex-image-provider.ts` has `responsesModel`/`imageModel` split (:20-21), `getCodexResponsesModel` (:47), `action`/`output_format` (:62-66), `store:false`+`instructions` (:70-72), `codexHttpProviderErrorFromResponse` (:193,:307), `sanitizeCodexErrorDetail` (:343); `image-provider-selection.ts:59-60` passes both models. Codex provider is separate from the env `OPENAI_IMAGE_API_MODE=responses` provider. |
+| `ed7a962` | feat: reload keep generate | equivalent | Server: `project-store.ts:285` uses `records.map` (no empty-output drop) + ownerEmail isolation; async tasks in `generation-tasks.ts`, polling routes `images.ts` (`GET/POST /api/generations/:id`), `clientRequestId` in `validation.ts`+shared. Client restore: `CanvasApp.tsx` `recoverActiveGenerationPolling` + `pollGenerationUntilComplete`. |
+| `05d3ee1` | fix: agent 400 error | equivalent | `planner.ts:67` `GENERATION_JOB_ROLE_ALIASES` (~70 entries) + `parseJobRole` (:2322-2333) identical (exact match → normalized alias). The other 22 files are the skill-store feature, not a 400 fix. |
+| `c62a01e` | fix: store increase error | inapplicable | `git grep 'tryWriteProjectSnapshotBackup|pruneProjectSnapshotBackups|PROJECT_SNAPSHOT_BACKUP|backedUpSnapshotHashes|backupExists' 0e35a2e` → nothing. Fork persists via drizzle to DB tables (no rotated filesystem backup dir to bound). |
+| `2151ef4` | feat: agent optimize | equivalent | Arbitrary job count 1..16 already present: `executor.ts:655` `isExecutableGenerationCount` = `value>0 && value<=MAX_GENERATION_PLAN_IMAGES`; `planner.ts:2295-2297` `parseGenerationCount` (no enum check); `MAX_GENERATION_PLAN_IMAGES=16`. Legacy enum `[1,2,4,8,16]` is UI-only. |
+| `7ade90f` | feat: optimize agent | equivalent | Pending-question preservation present byte-identical: shared `pendingUserText`, `conversation-store.ts:268-271`, `websocket-session.ts:560-590`,`644`,`776`, `resolvedConversationUserText`/`isShortClarificationResponse`; `shouldAcceptPlannerUserQuestion` (:491-501). |
+
+### Storage / gallery / persistence — already equivalent (verified)
+
+| Commit | Subject | Fork state | Evidence |
+|---|---|---|---|
+| `9f0ee8d` | feat: add R2 & S3 storage | equivalent | `infrastructure/storage/asset-storage.ts`, `packages/shared/src/storage.ts`, `domain/storage/storage-config.ts` are byte-identical to upstream post-commit (`S3CompatibleAssetStorageAdapter`, `resolveS3ConfigForSave`/`buildR2Endpoint`, `S3EndpointMode`). `CloudStorageProvider="cos"|"s3"`; `@aws-sdk/client-s3` in `apps/api/package.json`. Protected R2 behavior lives here. |
+| `6bd45b3` | feat: add quality of the loading | equivalent | Gallery ZIP export present + hardened with ownerEmail: `domain/assets/zip.ts` (`prepareZipFiles`/`createZipStream`), `routes/gallery.ts` `POST /api/gallery/export` (uses `requireInternalUserEmail`+ownerEmail), `GalleryPage.tsx` `exportSelectedItems`. Loading polish (`ChampagneParticleCanvas`) in `GenerationPlaceholderShape.tsx`. |
+
+### Agent feature commits — already equivalent (fork is a superset)
+
+| Commit | Subject | Fork state | Evidence |
+|---|---|---|---|
+| `f509d15` | Add agent config and WebSocket foundation | equivalent | `domain/agent/config.ts` (byte-identical logic, timeout 300000 ≥ upstream 60000), `schema.ts:63-72` `agentLlmConfigs`, `websocket-session.ts` `createAgentWebSocketEvents`. WS route fused with `internal-auth` (`requireInternalUserEmail` → ownerEmail). |
+| `462aec6` | Add agent generation plan planner | equivalent | `planner.ts` (2459 lines) exports every upstream symbol; `validateGenerationPlan` byte-identical; fork adds extra planner backends + ecommerce skill. |
+| `3f40fac` | Build agent tab UI | equivalent | Refactored into `features/canvas/CanvasApp.tsx` (`PanelTab`, `handleAgentServerEvent`, `ensureAgentSocket`, reference selection) + `styles/agent-panel.css`. |
+| `bc3f20a` | Add agent plan node shape | equivalent | `features/agent/AgentPlanNodeShape.tsx` (836 lines) — `AgentPlanNodeShapeUtil`, helpers; registered in `CanvasApp.tsx` `shapeUtils`. |
+| `f53ff27` | Add agent plan execution orchestration | equivalent | `domain/agent/executor.ts` (741 lines) — `executeGenerationPlan`, dependency walk, full emit suite; event literals in shared; threads ownerEmail. |
+| `f2889eb` | feat: add ai agent (foundational) | equivalent | Planner symbols all present; image-gen `persistedReferenceAssetId`/`asset:` matching present and threaded with R2/ownerEmail. |
+| `811f22e` | feat: add ai agent (dialog cleanup) | equivalent | The removed `provider-source-mini--agent-summary` is absent in the fork's independently-rewritten `ProviderConfigDialog.tsx`. |
+| `c41bcde` | Document agent canvas generation | equivalent | The aria fix is exceeded: fork uses `inert` (`CanvasApp.tsx:6007`) instead of `aria-hidden`. README is upstream-branded. |
+| `b0ea34c` | Stream direct agent planner output | equivalent | `assistant_thinking_delta` event/type + planner `onThinkingDelta`/`model.stream` reasoning extraction + WS emit + client consume — all present. |
+| `6df4906` | Fix agent transcript streaming layout | equivalent | Autoscroll effect (`CanvasApp.tsx:3434`), stale-event guards `isAgentStreamEventForActiveRun`/`isStaleAgentRunEvent`/`runIdForAgentEvent`, per-message `runId` `appendAgentStreamDelta` — all present (fork superset). |
+| `66edd7b` | Make agent plan details inspectable | equivalent | `AgentPlanNodeShape.tsx` `selectedJobId`, clickable job rows, `agent-plan-node__detail`, `AgentPlanDetailOutputSlots` — all present. |
+| `e14887e` | feat: update agent stablity | equivalent | `resolveImplicitAgentContextReferences` + zh/en target detection + `context_resolved` event + `AgentContextResolvedEvent` all present; fused with ownerEmail. |
+| `8ed1872` | feat: polyfill (agent history) | equivalent | `agent_conversations` table + `conversation-store.ts` + `routes/agent-conversations.ts` + WS `conversationId` + `AgentHistoryDialog` in `CanvasApp.tsx`. Fork superset (ownerEmail-guarded). |
+
+### UI / style / canvas / homepage — already equivalent (verified)
+
+| Commit | Subject | Fork state | Evidence |
+|---|---|---|---|
+| `051803a` | feat: add 4k portrait | equivalent | `packages/shared/src/image.ts` SIZE_PRESETS already contains `portrait-4k` (2160×3840); i18n `sizePresetLabels` has `portrait-4k` (zh+en). |
+| `89620f8` | feat: update canvas | equivalent | `CANVAS_DEFAULT_SNAP_MODE=true` + `CanvasSnapIndicator` + `isSnapMode` + `.canvas-snap-indicator` CSS; "Custom OpenAI"/"自定义" copy in i18n + provider-config + validation. |
+| `84cc805` | feat: 优化效果 | equivalent | `styles/canvas.css` blob equals commit post-image (`container-type: inline-size`, `clamp(0.56rem,3.8cqw,0.72rem)`). |
+| `c73aa2f` | feat: update homepage | equivalent | Part B (BrandMark→img, favicon.png, canvas-runtime brand-mark) present; Part A upstream marketing HomePage is inapplicable (fork goes embed→InternalLoginScreen→LazyCanvasApp). |
+| `3bcdf23` | style: style update | equivalent | Motion tokens + `--image-outline` in `tokens.css`, `text-wrap`/`tabular-nums` in `base.css`, `.panel-tab-switcher::before` + `data-active-tab` — present. |
+| `daee032` | style: fix style error | equivalent | `@keyframes app-view-fade-in` + `.app-shell.app-view:not([hidden])` in `base.css`; `.provider-config-tabs` position fix. |
+| `a1c6cd4` | style: style update | equivalent | `.segmented-control.is-active:hover` in `generation.css` (light) + `dark.css` (dark). |
+| `607f642` | fix: style update | equivalent | `.gallery-page.app-view:not([hidden])` fade in `gallery-cards.css`. |
+
+### Docs / CI / refactor — already equivalent or inapplicable
+
+| Commit | Subject | Fork state | Evidence |
+|---|---|---|---|
+| `a88d17a` | chore: update readme | equivalent | `CHANGELOG.md` v0.3.0 notes present; READMEs maintained independently. |
+| `e5aa85c` | feat: refactor | equivalent | Pure structural reorg; fork already has the full `domain/`+`server/routes/`+`features/` layout (no net behavior change). |
+| `e231773` | chore: add ghcr workflow | inapplicable | Fork deploys via Vercel, not Docker/GHCR. |
+| `3936336` | chore: update readme | inapplicable | Upstream README version-string cleanup; no fork equivalent. |
+| `7cd6d1f` | ci: publish docker image on push | inapplicable | Vercel deploy, not GHCR CI. |
+| `5abc7c6` | Document native dependency rebuild note | equivalent | `AGENTS.md:33` has the exact `better-sqlite3` rebuild note. |
+| `ce949a8` | Record agent streaming verification | equivalent | `.agents/tasks/prd-agent-streaming-plan-ui.json` AS-004 `done` + verificationNotes present. |
+
+### Blocked — with code-level proof
+
+| Commit | Subject | Why blocked (code-level) |
 |---|---|---|
-| `0adf543d` | fix: codex login error | Defer — patches `codex-image-provider.ts` / `image-provider-selection.ts`, a provider subsystem **absent** from this fork (we use the env-based `OPENAI_IMAGE_API_MODE=responses` provider). No target to port into. |
+| `6885edc` | feat: v0.4.0 add prompt pool | Net-new feature. Backend (tables `prompt_favorite_groups`/`prompt_favorites`, `domain/prompt-pool`, `domain/prompt-favorites`, routes, shared types) is **absent** (`git grep -i 'prompt-pool|prompt-favorites|PromptPoolPage|promptFavorites' 0e35a2e -- :!docs/` → nothing; `styles/pool.css`/`prompt-favorites.css` `cat-file -e` → not a valid object). The **user-facing** feature is a 488-line interleave into `CanvasApp.tsx` (`AppRoute` routing switch, lazy-module registry, `TopNavigation`, a 180-line `PromptFavoritesFloatingPanel`). `CanvasApp.tsx` is the host of the protected `shell-theme-bridge.ts`/`embed-session.ts`/`InternalLoginScreen` contracts, so a 488-line 3-way merge there is not an isolatable slice. The backend-only slice is isolatable but yields dead routes with no UI → no observable capability. **Blocked as shipped.** |
+| `c12237d` | feat: style update (favorites) | Strictly dependent on `6885edc`: edits `prompt-favorites.css` (absent — `cat-file -e` fails) and `PromptFavoritesFloatingPanel` (absent). No isolatable behavior. |
+| `7e0d2f6` | update style (favorites) | Edits only `prompt-favorites.css` (absent). Dependent on the blocked `6885edc`. |
+| `6d0ce77` | chore: release v0.4.0 | Functional parts (`PromptFavoriteTooltip` + handlers) extend the absent `PromptFavoritesFloatingPanel` / `prompt-favorites.css` / `prompt-pool-data`. Remainder is version/CHANGELOG bookkeeping (fork tracks its own release state). Dependent on the blocked `6885edc`. |
 
-### Phase 2 — storage / project persistence
-| Commit | Subject | Disposition |
-|---|---|---|
-| `9f0ee8d6` | feat: add R2 & S3 storage | Defer — fork **already has** Cloudflare R2 storage; 26-file/2600-line feature whose `CanvasApp.tsx` delta sits adjacent to protected embed/theme files. |
-| `c62a01e` | fix: store increase error | Defer — the real fix bounds project-**snapshot-backup** growth, but that backup scaffolding (`PROJECT_SNAPSHOT_BACKUP_*`, `tryWriteProjectSnapshotBackup`, `pruneProjectSnapshotBackups`) **does not exist** in this fork, so the bug cannot occur. Also entangled with a 758-line planner rewrite + new LangGraph dependency. |
+## Implemented: `eb4ad5b` requested-output-count preservation
 
-### Phase 3 — prompt pool / favorites
-| Commit | Subject | Disposition |
-|---|---|---|
-| `6885edc9` | feat: v0.4.0 add prompt pool | Defer — net-new feature across 26 files incl. a ~120K-line data blob, new DB schema/routes, and 484 lines interleaved into the most-diverged file (`CanvasApp.tsx`). Not a duplicate, but too entangled to port safely now. |
-| `c12237d9` | feat: style update (favorites) | Defer — `prompt-favorites.css` absent in fork; cosmetic only. |
-| `7e0d2f6b` | update style (favorites) | Defer — cosmetic CSS on absent file. |
-| `6d0ce777` | chore: release v0.4.0 | Defer — version bumps + prompt-pool data churn; no standalone capability. |
+Commit on this branch: `0464c67`.
 
-### Phase 4 — agent updates (only if they don't break Muxing embed/login)
-| Commit | Subject | Disposition |
-|---|---|---|
-| `f509d157` | Add agent config and WebSocket foundation | Defer — fork has its own divergent agent config/WS stack. |
-| `462aec63` | Add agent generation plan planner | Defer — 2034-line planner w/ LangChain/deepagents; duplicates fork planner. |
-| `3f40fac5` | Build agent tab UI | Defer — ~1500-line agent UI built from scratch; fork already ships its own. |
-| `bc3f20ac` | Add agent plan node shape | Defer — fork's `features/agent/AgentPlanNodeShape.tsx` is larger/ahead. |
-| `f53ff275` | Add agent plan execution orchestration | Defer — 699-line DAG executor; conflicts with fork executor contract. |
-| `c41bcde8` | Document agent canvas generation | Defer — docs + 1-line aria change; feature already implemented divergently. |
-| `b0ea34c7` | Stream direct agent planner output | Defer — DeepSeek streaming rework fused into diverged planner/WS. |
-| `6df4906e` | Fix agent transcript streaming layout | Defer — genuine autoscroll/stale-event fixes buried in 2289-line UI redesign. |
-| `66edd7bc` | Make agent plan details inspectable | Defer — multi-file agent UI feature over heavily-diverged files. |
-| `5abc7c6f` | Document native dependency rebuild note | Defer — single-line AGENTS.md dev note. |
-| `ce949a8b` | Record agent streaming verification | Defer — internal task-tracking JSON only. |
-| `f2889eb2` | feat: add ai agent | Defer — upstream's foundational agent feature (4838 ins/23 files); fork has full divergent agent layer. |
-| `811f22e4` | feat: add ai agent | Defer — provider-dialog UI cleanup over diverged component. |
-| `2151ef4e` | feat: agent optimize | Defer — job count 1–16 (nice, but spread across diverged planner/executor/shared). |
-| `ed7a9623` | feat: reload keep generate | Defer — async-polling rework; its `flatMap→map` history fix is **already present** in our `project-store.ts`. |
-| `e14887e5` | feat: update agent stablity | Defer — server-side agent memory refactor across 8 diverged files. |
-| `8ed18727` | feat: polyfill | Defer — agent-history persistence feature (new table + 533-line dialog) over diverged agent area. |
-| `05d3ee17` | fix: agent 400 error | Defer — `parseJobRole` alias fuzzy-match is **already present and more complete** in our planner; the rest is a 3400-line skill-store feature. |
-| `7ade90fd` | feat: optimize agent | Defer — "preserve pending question" UX inside diverged planner/WS. |
-| `eb4ad5b3` | feat: update agent mode | Defer — multi-image output-count fix (`evaluatePlannerAttemptOutput`) is **already present** in our planner; bundled with 550-line `CanvasApp.tsx` rewrite over Muxing-sensitive layout. |
+**Bug:** the agent planner could collapse a request for N images/variants into a
+single output (count 1), ignoring the user's explicit count.
 
-### Out of scope — docs / CI / pure-style / structural refactor
-| Commit | Subject | Disposition |
-|---|---|---|
-| `a88d17a9` | chore: update readme | Defer — docs only. |
-| `e5aa85c7` | feat: refactor | Defer — ~17K-line structural reorg across 76 files; fork diverged past it; touches files our embed/auth/theme layers depend on. |
-| `051803a7` | feat: add 4k portrait | Defer — `SIZE_PRESETS` array absent in fork (canvas sizing handled divergently). |
-| `3bcdf232` | style: style update | Defer — cosmetic CSS + docs dump (36 files). |
-| `daee0326` | style: fix style error | Defer — cosmetic CSS polish. |
-| `89620f8a` | feat: update canvas | Defer — i18n copy pass + snap indicator (snap already implemented divergently). |
-| `c73aa2f4` | feat: update homepage | Defer — upstream homepage redesign + brand assets; fork has its own branding. |
-| `a1c6cd48` | style: style update | Defer — cosmetic hover CSS on absent files. |
-| `6bd45b35` | feat: add quality of the loading | Defer — cosmetic loader + gallery ZIP export; would need integration with diverged guest-mode gallery. |
-| `84cc8052` | feat: 优化效果 | Defer — `canvas.css` absent in fork. |
-| `e231773e` | chore: add ghcr workflow | Defer — Docker/GHCR CI; fork deploys via Vercel. |
-| `39363366` | chore: update readme | Defer — docs only. |
-| `607f6423` | fix: style update | Defer — `gallery-cards.css` absent in fork. |
-| `7cd6d1fb` | ci: publish docker image on push | Defer — CI only; not used by fork. |
+**Genuine fork gap (proof):** the fork has `evaluatePlannerAttemptOutput`
+(`planner.ts:395`) but its body ended at `return {ok:true, plan:validated.plan}` with
+no count guard, and both selected-reference fallbacks returned the raw `fallbackPlan`.
+`git grep 'validateRequestedOutputCount|planSatisfiesRequestedOutputCount|finalOrVariationOutputCount|requestedOutputCountFromUserText|parseChineseCountToken|parseEnglishCountToken' 0e35a2e -- apps/api/src/`
+returned nothing.
 
-## Verified fix candidates (hand-checked against our code)
+**Port (`apps/api/src/domain/agent/planner.ts`, +231/-7):** upstream-equivalent, faithful.
+- Added `FALLBACK_VARIANT_DIRECTIONS` and 8 pure helpers (count parsing for digits,
+  Chinese, and English numerals; `isLikelyReferenceCountMention` to ignore
+  "combine the 3 selected images into one"; `validateRequestedOutputCount`,
+  `planSatisfiesRequestedOutputCount`, `finalOrVariationOutputCount`). CJK code points
+  verified byte-equivalent to upstream's `\u`-escaped source.
+- `evaluatePlannerAttemptOutput` reflects/retries with `agent_requires_user_input`
+  when `finalOrVariationOutputCount(plan) < requested`, and gates both fallbacks.
+- `createSelectedReferenceEditFallbackPlan` builds multi-variant fallback plans;
+  `buildPlannerUserMessage` injects the requested-count instruction.
 
-These are the only commits whose "genuine fix" could plausibly matter; each was opened
-and compared against `ad52b7d` directly:
+All dependencies pre-existed in the fork: `MAX_GENERATION_PLAN_IMAGES`,
+`AgentPlannerFailure`, `positiveIntegerValue` (accepts string digits),
+`intent.requiresEverySelectedReference`, `selectedReferenceForFallbackJob`. **No
+protected Muxing file is touched.**
 
-1. **`c62a01e` snapshot-backup pruning** — our `project-store.ts` contains **none** of
-   the backup symbols the fix touches. The unbounded-growth bug cannot occur here.
-   → inapplicable.
-2. **`ed7a9623` `readGenerationHistory` `flatMap → map`** — our `project-store.ts`
-   already returns `records.map((record) => …)` with the record emitted directly (no
-   `if (mappedOutputs.length === 0) return []` drop), and is additionally
-   `ownerEmail`-isolated for internal login. In-progress records are **not** hidden.
-   → already handled.
-3. **`05d3ee17` `parseJobRole` role aliases** — our planner already defines
-   `GENERATION_JOB_ROLE_ALIASES` and a `parseJobRole` that falls back to the normalized
-   alias table; our table is broader than upstream's. → already present.
-4. **`eb4ad5b3` output-count evaluation** — our planner already defines
-   `evaluatePlannerAttemptOutput`. → already present (equivalent logic).
-5. **`0adf543d` codex `responsesModel`/`imageModel` split** — the `codex-image-provider`
-   subsystem it edits does not exist in this fork. → inapplicable.
+**Tests (`apps/api/src/smoke/agent-planner-smoke.ts`, +111):** mirror upstream's two
+smoke cases (variant fallback preserves explicit count; planner reflects on a dropped
+explicit count) plus a detection check (English digit, Chinese numeral, and
+reference-mention suppression). All pass.
 
-## Muxing customizations confirmed intact at `ad52b7d`
+## Verification (this branch @ `0464c67`)
 
-- `apps/api/src/server/internal-auth.ts` — present
-- `apps/web/src/features/canvas/InternalLoginScreen.tsx` — present
-- `apps/web/src/features/canvas/embed-session.ts` — present
-- `apps/web/src/features/canvas/shell-theme-bridge.ts` — present
-- `apps/api/test/openai-responses-provider.test.ts` — present (passes)
-- Env OpenAI Responses mode (`OPENAI_IMAGE_API_MODE=responses`) — preserved
-- Cloudflare R2 storage, guest mode, agent canvas tree, `ownerEmail` history isolation,
-  terracotta/teal theme tokens — all retained (fork is ahead of upstream here)
-- Active-service assumptions unchanged (API :8791, Caddy upstream)
+- `pnpm --filter @gpt-image-canvas/shared build` — OK
+- `pnpm --filter @gpt-image-canvas/api typecheck` — OK (0 errors)
+- `pnpm --filter @gpt-image-canvas/api smoke:planner` — **PASS** (all cases incl. 3 new)
+- `tsx test/openai-responses-provider.test.ts` — **PASS 1/1** (protected)
+- `tsx test/internal-auth.test.ts` — **PASS 6/6** (protected)
+- `tsx test/generation-task-init.test.ts` — PASS 1/1
+- `tsx test/provider-config-guest.test.ts` — PASS 1/1 (guest mode)
+- `pnpm build` (shared + web vite + api) — OK
 
-## Verification (this branch)
+## Protected Muxing customizations — confirmed intact
 
-- `pnpm install --frozen-lockfile` — OK
-- `pnpm --filter @gpt-image-canvas/api exec tsx test/openai-responses-provider.test.ts` — **PASS** (1/1)
-- `pnpm --filter @gpt-image-canvas/api typecheck` — **PASS** (no errors)
+`internal-auth.ts`, `InternalLoginScreen.tsx`, `embed-session.ts`,
+`shell-theme-bridge.ts`, guest mode, embed/login/session/theme bridge, Cloudflare R2
+storage, gallery/custom service, ownerEmail history isolation, env
+`OPENAI_IMAGE_API_MODE=responses` provider, and
+`apps/api/test/openai-responses-provider.test.ts` — all unchanged. The only files
+modified by this run are `apps/api/src/domain/agent/planner.ts` and
+`apps/api/src/smoke/agent-planner-smoke.ts`.
 
-## Recommendation for future syncs
+## Guidance for future syncs
 
-Treat `mrslimslim/gpt-image-canvas` as a *reference*, not a merge source — the histories
-are patch-incompatible and a blind merge is destructive. If a specific upstream
-capability is wanted (prompt pool, gallery ZIP export, agent stability tweaks, 4K
-portrait preset), scope it as its own port project and re-implement it against this
-fork's architecture with dedicated tests, rather than cherry-picking. Keep
-internal-auth / embed-session / shell-theme-bridge and the env Responses provider as the
-protected core. Re-run the `git merge-tree` + per-commit triage approach for the next
-window.
+Treat `mrslimslim/gpt-image-canvas` as a reference, not a merge source — histories are
+patch-incompatible. The fork is at parity or ahead on every area except the
+prompt-pool feature (blocked: its UI is fused into the protected `CanvasApp.tsx`
+shell). If prompt-pool is wanted, scope it as a dedicated port that re-implements the
+UI against the fork's shell + embed/theme contracts, not a cherry-pick.
