@@ -18,7 +18,7 @@ Unlike the prior triage (which deferred all 41 and contained several false
 |---|---|
 | **Implemented** (ported this run) | **1** — `eb4ad5b` requested-output-count preservation |
 | Already equivalent (fork has it / inapplicable subsystem) | 36 |
-| Blocked, with code-level proof | 4 — `6885edc` prompt pool + its 3 dependents |
+| **Ported** (dedicated prompt-pool port, 2026-06-05) | 4 — `6885edc` prompt pool + its 3 dependents |
 | **Total** | **41** |
 
 Method: per-commit read-only analysis of upstream diff vs the fork's committed code,
@@ -117,7 +117,14 @@ Fork refs are `0e35a2e:<path>`. "equivalent" = fork already implements the behav
 | `5abc7c6` | Document native dependency rebuild note | equivalent | `AGENTS.md:33` has the exact `better-sqlite3` rebuild note. |
 | `ce949a8` | Record agent streaming verification | equivalent | `.agents/tasks/prd-agent-streaming-plan-ui.json` AS-004 `done` + verificationNotes present. |
 
-### Blocked — with code-level proof
+### Blocked — with code-level proof (RESOLVED 2026-06-05)
+
+> **UPDATE 2026-06-05 — these 4 commits are now PORTED.** They were re-implemented
+> against the fork's shell, embed, and owner-isolation contracts (owner-scoped
+> favorites, external `PROMPT_POOL_DIR` data) on branch
+> `codex/prompt-pool-port-20260605` — exactly the "dedicated port" this matrix
+> recommended. See [UPSTREAM_PROMPT_POOL_PORT_20260605.md](./UPSTREAM_PROMPT_POOL_PORT_20260605.md).
+> The original block analysis is retained below for history.
 
 | Commit | Subject | Why blocked (code-level) |
 |---|---|---|
