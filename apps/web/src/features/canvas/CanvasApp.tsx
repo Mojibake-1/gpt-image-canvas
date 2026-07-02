@@ -2623,12 +2623,8 @@ function BrandMark({ className = "" }: { className?: string }) {
 
 function BrandName() {
   return (
-    <p className="brand-name" title="gpt-image-canvas">
-      <span className="brand-name__prefix">gpt</span>
-      <span className="brand-name__dash">-</span>
-      <span className="brand-name__image">image</span>
-      <span className="brand-name__dash">-</span>
-      <span className="brand-name__canvas">canvas</span>
+    <p className="brand-name" title="沐星画布 · AI 图像画布">
+      <span className="brand-name__wordmark">沐星画布</span>
     </p>
   );
 }

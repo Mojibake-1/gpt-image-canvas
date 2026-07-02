@@ -388,93 +388,284 @@ a:focus-visible {
 }
 
 
+/* ── 手作稿纸画室 · Draftsman's Atelier 登录首屏 ──────────────────────
+   赤陶暖纸身份：暖纸底 + 稿纸纹理 + 四角制图 corner marks + 极细蛛网线，
+   赤陶按钮 + Noto Serif SC 编辑体标题。不换赤陶身份色。 */
 .internal-login-screen {
   min-height: 100vh;
   display: grid;
   place-items: center;
   padding: 2rem;
-  background: #0f172a;
-  color: #111827;
+  color: var(--ink);
+  background:
+    radial-gradient(120% 90% at 50% -10%, rgb(255 253 248 / 0.9), transparent 60%),
+    radial-gradient(90% 70% at 50% 120%, rgb(126 50 26 / 0.05), transparent 55%),
+    var(--paper);
 }
 
 .internal-login-card {
-  width: min(100%, 26rem);
-  border: 1px solid rgba(148, 163, 184, 0.3);
-  border-radius: 0.5rem;
-  background: #ffffff;
-  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.35);
-  padding: 1.5rem;
+  position: relative;
+  width: min(100%, 27rem);
+  padding: 2.4rem 2.1rem 2.1rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--ink);
+  background:
+    /* 稿纸横线纹理 */
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 calc(1.75rem - 1px),
+      rgb(126 50 26 / 0.06) calc(1.75rem - 1px) 1.75rem
+    ),
+    linear-gradient(180deg, var(--paper-panel), var(--paper-soft));
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.7) inset,
+    var(--shadow-lift);
+  animation: internal-login-in var(--motion-duration-pop) var(--motion-ease-pop) both;
+}
+
+/* 四角制图 corner marks */
+.internal-login-corner {
+  position: absolute;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid var(--accent);
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.internal-login-corner--tl {
+  top: 10px;
+  left: 10px;
+  border-right: 0;
+  border-bottom: 0;
+}
+
+.internal-login-corner--tr {
+  top: 10px;
+  right: 10px;
+  border-left: 0;
+  border-bottom: 0;
+}
+
+.internal-login-corner--bl {
+  bottom: 10px;
+  left: 10px;
+  border-right: 0;
+  border-top: 0;
+}
+
+.internal-login-corner--br {
+  bottom: 10px;
+  right: 10px;
+  border-left: 0;
+  border-top: 0;
+}
+
+/* 极细蛛网线装饰：右上角淡入，克制不具象 */
+.internal-login-web {
+  position: absolute;
+  top: -26px;
+  right: -26px;
+  width: 148px;
+  height: 148px;
+  color: var(--accent);
+  opacity: 0.14;
+  pointer-events: none;
+}
+
+.internal-login-web path {
+  stroke: currentColor;
+  stroke-width: 0.8;
+  fill: none;
+}
+
+.internal-login-head {
+  position: relative;
+  margin-bottom: 1.75rem;
 }
 
 .internal-login-eyebrow {
-  color: #64748b;
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-transform: uppercase;
+  color: var(--accent-dark);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.28em;
 }
 
 .internal-login-title {
-  margin-top: 0.25rem;
-  color: #111827;
-  font-size: 1.35rem;
-  line-height: 1.25;
-  font-weight: 800;
+  margin-top: 0.5rem;
+  color: var(--ink);
+  font-family: var(--font-editorial);
+  font-size: 2.35rem;
+  line-height: 1.05;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.internal-login-subtitle {
+  margin-top: 0.55rem;
+  color: var(--muted-ink);
+  font-size: 0.85rem;
+  font-weight: 500;
+  line-height: 1.4;
 }
 
 .internal-login-form {
   display: grid;
   gap: 1rem;
-  margin-top: 1.5rem;
 }
 
 .internal-login-field {
   display: grid;
   gap: 0.45rem;
-  color: #334155;
-  font-size: 0.88rem;
+  color: var(--muted-ink);
+  font-size: 0.78rem;
   font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .internal-login-field input {
-  min-height: 2.75rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 0.45rem;
-  padding: 0 0.8rem;
+  min-height: 2.85rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  padding: 0 0.85rem;
+  color: var(--ink);
   font-size: 1rem;
+  background: rgb(255 255 255 / 0.6);
   outline: none;
+  transition:
+    border-color var(--motion-duration-control) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-control) var(--motion-ease-standard);
+}
+
+.internal-login-field input::placeholder {
+  color: rgb(111 102 92 / 0.7);
 }
 
 .internal-login-field input:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(198 95 50 / 0.16);
 }
 
 .internal-login-error {
-  border: 1px solid #fecaca;
-  border-radius: 0.45rem;
-  background: #fef2f2;
-  color: #b91c1c;
-  font-size: 0.88rem;
+  border: 1px solid rgb(180 35 24 / 0.32);
+  border-radius: 6px;
+  background: rgb(180 35 24 / 0.07);
+  color: var(--danger);
+  font-size: 0.85rem;
   line-height: 1.45;
   padding: 0.65rem 0.75rem;
 }
 
-.internal-login-submit {
-  min-height: 2.75rem;
+.internal-login-submit,
+.internal-login-guest {
+  min-height: 2.85rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  border: 0;
-  border-radius: 0.45rem;
-  background: #111827;
-  color: #ffffff;
-  font-weight: 800;
+  border-radius: 6px;
+  font-weight: 700;
   cursor: pointer;
+  transition:
+    background-color var(--motion-duration-control) var(--motion-ease-standard),
+    border-color var(--motion-duration-control) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-control) var(--motion-ease-standard),
+    transform var(--motion-duration-control) var(--motion-ease-standard);
 }
 
-.internal-login-submit:disabled {
+.internal-login-submit {
+  border: 1px solid var(--accent-dark);
+  background: var(--accent);
+  color: #fffdf8;
+  box-shadow: 0 10px 24px rgb(126 50 26 / 0.22);
+}
+
+.internal-login-submit:hover:not(:disabled) {
+  background: var(--accent-dark);
+}
+
+.internal-login-guest {
+  margin-top: 0.1rem;
+  border: 1px solid var(--line-strong);
+  background: rgb(255 255 255 / 0.55);
+  color: var(--accent-dark);
+}
+
+.internal-login-guest:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: #fff5e8;
+}
+
+.internal-login-submit:not(:disabled):active,
+.internal-login-guest:not(:disabled):active {
+  transform: scale(var(--motion-scale-press));
+}
+
+.internal-login-submit:focus-visible,
+.internal-login-guest:focus-visible,
+.internal-login-field input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.internal-login-submit:disabled,
+.internal-login-guest:disabled {
   cursor: not-allowed;
-  opacity: 0.68;
+  opacity: 0.62;
+}
+
+@keyframes internal-login-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-distance-panel)) scale(var(--motion-scale-popover));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* 暗色态（外壳 stellar/dark 或系统偏好）同步统一进赤陶暖纸语言 */
+.app-root[data-canvas-theme="dark"].internal-login-screen,
+.internal-login-screen[data-canvas-theme="dark"] {
+  background:
+    radial-gradient(120% 90% at 50% -10%, rgb(45 33 24 / 0.6), transparent 60%),
+    #12100e;
+}
+
+.app-root[data-canvas-theme="dark"] .internal-login-card,
+.internal-login-screen[data-canvas-theme="dark"] .internal-login-card {
+  border-color: #3a3029;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 calc(1.75rem - 1px),
+      rgb(247 178 103 / 0.05) calc(1.75rem - 1px) 1.75rem
+    ),
+    linear-gradient(180deg, #1d1815, #191512);
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.04) inset,
+    0 28px 70px rgb(0 0 0 / 0.42);
+}
+
+@media (prefers-color-scheme: dark) {
+  .internal-login-screen:not([data-canvas-theme="light"]) {
+    background:
+      radial-gradient(120% 90% at 50% -10%, rgb(45 33 24 / 0.6), transparent 60%),
+      #12100e;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .internal-login-card {
+    animation: none;
+  }
+
+  .internal-login-submit:not(:disabled):active,
+  .internal-login-guest:not(:disabled):active {
+    transform: none;
+  }
 }

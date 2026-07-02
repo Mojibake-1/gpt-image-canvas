@@ -12,10 +12,63 @@
   background: var(--canvas-paper);
 }
 
+/* 画布四角制图 corner marks（签名元素）：非交互覆盖层，压在 tldraw 上、不吃指针 */
+[data-testid="canvas-shell"]::after {
+  content: "";
+  position: absolute;
+  inset: 14px;
+  z-index: 5;
+  --corner-color: rgb(126 50 26 / 0.32);
+  --corner-len: 22px;
+  --corner-w: 1.5px;
+  background-image:
+    linear-gradient(var(--corner-color), var(--corner-color)),
+    linear-gradient(var(--corner-color), var(--corner-color)),
+    linear-gradient(var(--corner-color), var(--corner-color)),
+    linear-gradient(var(--corner-color), var(--corner-color)),
+    linear-gradient(var(--corner-color), var(--corner-color)),
+    linear-gradient(var(--corner-color), var(--corner-color)),
+    linear-gradient(var(--corner-color), var(--corner-color)),
+    linear-gradient(var(--corner-color), var(--corner-color));
+  background-repeat: no-repeat;
+  background-size:
+    var(--corner-len) var(--corner-w), var(--corner-w) var(--corner-len),
+    var(--corner-len) var(--corner-w), var(--corner-w) var(--corner-len),
+    var(--corner-len) var(--corner-w), var(--corner-w) var(--corner-len),
+    var(--corner-len) var(--corner-w), var(--corner-w) var(--corner-len);
+  background-position:
+    left top, left top,
+    right top, right top,
+    left bottom, left bottom,
+    right bottom, right bottom;
+  pointer-events: none;
+}
+
+.app-root[data-canvas-theme="dark"] [data-testid="canvas-shell"]::after {
+  --corner-color: rgb(245 159 111 / 0.32);
+}
+
 [data-testid="canvas-shell"] .tl-theme__light,
 [data-testid="canvas-shell"] .tl-theme__dark {
   --tl-color-background: var(--canvas-paper);
   --tl-color-grid: var(--canvas-paper-grid);
+  /* 统一 tldraw 默认蓝（选区/主色/焦点/工具条高亮那个突兀的蓝色方块）进赤陶语言 */
+  --tl-color-selected: var(--accent);
+  --tl-color-selected-contrast: #fffdf8;
+  --tl-color-selection-stroke: var(--accent);
+  --tl-color-selection-fill: rgb(198 95 50 / 0.22);
+  --tl-color-focus: rgb(198 95 50 / 0.5);
+  --tl-color-primary: var(--accent);
+}
+
+.app-root[data-canvas-theme="dark"] [data-testid="canvas-shell"] .tl-theme__light,
+.app-root[data-canvas-theme="dark"] [data-testid="canvas-shell"] .tl-theme__dark {
+  --tl-color-selected: #f59f6f;
+  --tl-color-selected-contrast: #25130d;
+  --tl-color-selection-stroke: #f59f6f;
+  --tl-color-selection-fill: rgb(245 159 111 / 0.22);
+  --tl-color-focus: rgb(245 159 111 / 0.5);
+  --tl-color-primary: #f59f6f;
 }
 
 [data-testid="canvas-shell"] .canvas-snap-indicator .tl-snap-indicator {
@@ -48,6 +101,43 @@
 .ai-panel-actions {
   border-color: var(--line);
   background: var(--paper-panel);
+}
+
+/* 图签栏 title block：AI 面板头部做成制图图签语言——细制图基线 + 角标刻线 */
+.ai-panel > div:first-child {
+  position: relative;
+  background:
+    linear-gradient(180deg, var(--paper-panel), rgb(247 240 229 / 0.5)),
+    var(--paper-panel);
+}
+
+.ai-panel > div:first-child::before {
+  content: "";
+  position: absolute;
+  right: 1.15rem;
+  bottom: 0;
+  left: 1.15rem;
+  height: 1px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--line-strong) 0 6px,
+    transparent 6px 12px
+  );
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.ai-panel > div:first-child::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 1.15rem;
+  width: 10px;
+  height: 10px;
+  border-left: 1.5px solid var(--accent);
+  border-bottom: 1.5px solid var(--accent);
+  opacity: 0.55;
+  pointer-events: none;
 }
 
 .ai-panel h1 {

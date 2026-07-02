@@ -5,8 +5,12 @@
 :root {
   --ai-panel-width: clamp(380px, 28vw, 440px);
   --app-nav-height: 3.75rem;
+  /* 身份色是「赤陶 terracotta」#c65f32。--brand-blue* 是历史遗留命名（实为赤陶橙），
+     保留以兼容现有引用；新代码请用下方 --brand-terracotta* 语义别名。 */
   --brand-blue: #c65f32;
   --brand-blue-dark: #7e321a;
+  --brand-terracotta: var(--brand-blue);
+  --brand-terracotta-dark: var(--brand-blue-dark);
   --brand-cyan: #0f766e;
   --brand-cyan-soft: #d9fbf4;
   --brand-ink: #15110d;

@@ -76,13 +76,12 @@
   color: #15110d;
 }
 
-.app-root[data-canvas-theme="dark"] .brand-name__prefix {
-  color: #fff7ed;
+.app-root[data-canvas-theme="dark"] .brand-name__wordmark {
+  color: #f7b267;
 }
 
-.app-root[data-canvas-theme="dark"] .brand-name__canvas {
-  color: #5eead4;
-  text-shadow: 0 0.08rem 0 rgb(15 118 110 / 0.36);
+.app-root[data-canvas-theme="dark"] .brand-name::after {
+  background: linear-gradient(90deg, #f7b267 0%, rgb(247 178 103 / 0.3) 100%);
 }
 
 .app-root[data-canvas-theme="dark"] .brand-tagline {

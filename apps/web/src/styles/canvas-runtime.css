@@ -103,8 +103,6 @@
 .brand-name {
   overflow: hidden;
   color: var(--brand-ink);
-  font-size: 0.875rem;
-  font-weight: 750;
   line-height: 1.1;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -112,7 +110,7 @@
 
 .brand-tagline {
   margin-top: 0.15rem;
-  color: #64748b;
+  color: var(--muted-ink);
   font-size: 0.72rem;
   font-weight: 650;
   line-height: 1.15;
@@ -245,14 +243,14 @@
   }
 
   .mobile-ai-trigger:hover {
-    background: linear-gradient(135deg, var(--brand-blue-dark) 0%, #1e40af 78%, var(--brand-cyan) 100%);
-    box-shadow: 0 18px 44px rgb(15 23 42 / 0.32);
+    background: linear-gradient(135deg, var(--brand-blue-dark) 0%, var(--brand-blue) 78%, var(--brand-cyan) 100%);
+    box-shadow: 0 18px 44px rgb(126 50 26 / 0.32);
     transform: translateY(-1px);
   }
 
   .mobile-ai-trigger:focus-visible,
   .ai-panel-close:focus-visible {
-    outline: 2px solid #93c5fd;
+    outline: 2px solid var(--focus);
     outline-offset: 2px;
   }
 

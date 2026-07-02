@@ -1302,12 +1302,8 @@
   position: relative;
   max-width: 100%;
   overflow: hidden;
-  padding-bottom: 0.22rem;
+  padding-bottom: 0.24rem;
   color: var(--ink);
-  font-family: "Bodoni 72", "Didot", "Georgia", var(--font-editorial);
-  font-size: 1.05rem;
-  font-weight: 900;
-  letter-spacing: 0;
   line-height: 0.98;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1319,41 +1315,19 @@
   right: 0.1rem;
   bottom: 0.02rem;
   left: 0;
-  height: 0.16rem;
+  height: 2px;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgb(198 95 50 / 0.9), rgb(15 118 110 / 0.78));
-  transform: skewX(-18deg);
+  background: linear-gradient(90deg, var(--accent) 0%, rgb(198 95 50 / 0.35) 100%);
 }
 
-.brand-name span {
+.brand-name__wordmark {
   display: inline-block;
+  color: var(--accent-dark);
+  font-family: var(--font-editorial);
+  font-size: 1.32rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
   vertical-align: baseline;
-}
-
-.brand-name__prefix {
-  color: #2c211a;
-  font-style: italic;
-  font-weight: 700;
-}
-
-.brand-name__image {
-  color: transparent;
-  background: linear-gradient(100deg, #7e321a 0%, #c65f32 48%, #0f766e 100%);
-  background-clip: text;
-  font-size: 1.07em;
-  -webkit-background-clip: text;
-}
-
-.brand-name__canvas {
-  color: #0f5f58;
-  font-size: 1.15em;
-  text-shadow: 0 0.08rem 0 rgb(231 177 112 / 0.36);
-}
-
-.brand-name__dash {
-  color: #b95b32;
-  margin: 0 0.04em;
-  transform: rotate(-10deg);
 }
 
 .brand-tagline {
